@@ -1,0 +1,3 @@
+filename,full_path,actual_class,predicted_class,confidence,prob_Cyst,prob_Normal,prob_Stone,prob_Tumor
+Cyst- (3165).jpg,kidney_dataset/CT-KIDNEY-DATASET-Normal-Cyst-Tumor-Stone/CT-KIDNEY-DATASET-Normal-Cyst-Tumor-Stone/Cyst/Cyst- (3165).jpg,Cyst,Stone,61.37%,38.63%,0.00%,61.37%,0.00%
+Cyst- (1576).jpg,kidney_dataset/CT-KIDNEY-DATASET-Normal-Cyst-Tumor-Stone/CT-KIDNEY-DATASET-Normal-Cyst-Tumor-Stone/Cyst/Cyst- (1576).jpg,Cyst,Stone,65.96%,34.04%,0.00%,65.96%,0.00%

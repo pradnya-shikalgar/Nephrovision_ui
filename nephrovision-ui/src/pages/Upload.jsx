@@ -17,8 +17,12 @@ const Upload = () => {
 
   const handleAnalyze = () => {
     if (selectedFile) {
-      const imageUrl = URL.createObjectURL(selectedFile);
-      navigate('/analyze', { state: { file: selectedFile, filename: selectedFile.name, imageUrl, patientName, patientAge } });
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const imageUrl = reader.result;
+        navigate('/analyze', { state: { file: selectedFile, filename: selectedFile.name, imageUrl, patientName, patientAge } });
+      };
+      reader.readAsDataURL(selectedFile);
     }
   };
 

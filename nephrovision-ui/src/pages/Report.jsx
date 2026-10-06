@@ -11,6 +11,7 @@ const Report = () => {
   const filename = location.state?.filename || 'Patient_CT_0042.dcm';
   const patientName = location.state?.patientName || 'Not Specified';
   const patientAge = location.state?.patientAge || 'Not Specified';
+  const doctorPrescription = location.state?.doctorPrescription || '';
   const signSymptom = location.state?.signSymptom || 'Not Specified';
   const distance = location.state?.distance || 'Not Specified';
   const history = location.state?.history || 'Not Specified';
@@ -22,6 +23,7 @@ const Report = () => {
   const leftVolume = location.state?.leftVolume || 142;
   const rightVolume = location.state?.rightVolume || 138;
   const message = location.state?.message || "No visible abnormalities, cysts, or tumors identified in the highlighted regions.";
+  const llmReport = location.state?.llmReport || null;
 
   const [currentDate] = useState(() => new Date().toLocaleDateString());
 
@@ -77,6 +79,9 @@ const Report = () => {
             <p><strong>History:</strong> {history}</p>
             <p><strong>Medication:</strong> {medication}</p>
             <p><strong>Scan ID:</strong> {filename}</p>
+            {doctorPrescription && (
+              <p style={{ gridColumn: 'span 2' }}><strong>Prescription:</strong> {doctorPrescription}</p>
+            )}
           </div>
         </div>
         <div>
@@ -111,6 +116,37 @@ const Report = () => {
           <li>Symmetry Ratio: {(leftVolume / rightVolume).toFixed(2)} {isTumor ? '(Abnormal)' : isCyst ? '(Warning)' : '(Normal)'}</li>
         </ul>
       </Card>
+
+      {doctorPrescription && (
+        <Card title="Physician Prescription & Clinical Advice" className="mb-8" style={{ boxShadow: 'none', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-background)' }}>
+          <p style={{ margin: 0, whiteSpace: 'pre-line', fontSize: '0.95rem', color: 'var(--color-text-main)' }}>
+            {doctorPrescription}
+          </p>
+        </Card>
+      )}
+
+      {llmReport && llmReport.report && (
+        <Card title="Multimodal Clinical Scribe Dossier (Powered by Google Gemini)" className="mb-8" style={{ boxShadow: 'none', border: '1px solid #3b82f6', backgroundColor: '#f8fafc' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', fontSize: '0.9rem', color: '#1e293b' }}>
+            <div>
+              <h5 style={{ color: '#1d4ed8', margin: '0 0 0.35rem 0', fontWeight: 700 }}>1. Executive Diagnostic Synthesis</h5>
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{llmReport.report.executive_synthesis}</p>
+            </div>
+            <div>
+              <h5 style={{ color: '#b45309', margin: '0 0 0.35rem 0', fontWeight: 700 }}>2. Pre-Operative Surgical Risk Stratification & Nephrometry</h5>
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{llmReport.report.surgical_risk_stratification}</p>
+            </div>
+            <div>
+              <h5 style={{ color: '#047857', margin: '0 0 0.35rem 0', fontWeight: 700 }}>3. Comorbidity-Aware Renal Nutrition Protocol</h5>
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{llmReport.report.renal_nutrition_plan}</p>
+            </div>
+            <div>
+              <h5 style={{ color: '#6d28d9', margin: '0 0 0.35rem 0', fontWeight: 700 }}>4. Patient-Friendly Summary</h5>
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{llmReport.report.patient_friendly_summary}</p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card title="Dietary & Lifestyle Plan" className="mb-8" style={{ boxShadow: 'none', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-background)' }}>
         <ul style={{ paddingLeft: '1.5rem', fontSize: '0.9rem', color: 'var(--color-text)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

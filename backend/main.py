@@ -2,13 +2,13 @@ import os
 import io
 import random
 import asyncio
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 # Import the model definition
 try:
@@ -21,7 +21,7 @@ app = FastAPI(title="NephroVision API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,6 +48,7 @@ class AnalysisResponse(BaseModel):
     distance: str = ""
     history: str = ""
     medication: str = ""
+    doctor_prescription: str = ""
     bounding_boxes: List[BoundingBox] = []
 
 # ---------------------------------------------------------
@@ -99,7 +100,12 @@ def read_root():
     return {"message": "NephroVision Backend is running"}
 
 @app.post("/api/analyze", response_model=AnalysisResponse)
-async def analyze_image(file: UploadFile = File(...)):
+async def analyze_image(
+    file: UploadFile = File(...),
+    doctor_prescription: Optional[str] = Form(""),
+    patient_name: Optional[str] = Form(""),
+    patient_age: Optional[str] = Form("")
+):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
     
@@ -226,6 +232,7 @@ async def analyze_image(file: UploadFile = File(...)):
         distance=distance,
         history=history,
         medication=medication,
+        doctor_prescription=doctor_prescription or "",
         bounding_boxes=bounding_boxes
     )
 
@@ -240,9 +247,21 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-def get_base64_image(img):
-    _, buffer = cv2.imencode('.jpg', img)
+def get_base64_image(img, quality=98):
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+    _, buffer = cv2.imencode('.jpg', img, encode_param)
     return base64.b64encode(buffer).decode('utf-8')
+
+def enhance_and_upscale(img, min_dim=768):
+    h, w = img.shape[:2]
+    if max(h, w) < min_dim:
+        scale = min_dim / float(max(h, w))
+        new_w, new_h = int(w * scale), int(h * scale)
+        upscaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+        gaussian = cv2.GaussianBlur(upscaled, (0, 0), 1.0)
+        sharpened = cv2.addWeighted(upscaled, 1.25, gaussian, -0.25, 0)
+        return sharpened
+    return img
 
 @app.post("/api/technical_details")
 async def get_technical_details(file: UploadFile = File(...)):
@@ -250,8 +269,11 @@ async def get_technical_details(file: UploadFile = File(...)):
     image_pil = Image.open(io.BytesIO(contents)).convert('RGB')
     image_cv2 = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
     
+    # Upscale to crisp high resolution (min 768px)
+    image_cv2_hires = enhance_and_upscale(image_cv2, min_dim=768)
+    
     # 1. Original
-    original_b64 = get_base64_image(image_cv2)
+    original_b64 = get_base64_image(image_cv2_hires)
     
     # 2. Grad-CAM
     try:
@@ -261,27 +283,32 @@ async def get_technical_details(file: UploadFile = File(...)):
         target_layers = [model.stage4]
         cam = GradCAM(model=model, target_layers=target_layers)
         input_tensor = transform(image_pil).unsqueeze(0).to(device)
-        targets = [ClassifierOutputTarget(1)] # Mock target
+        targets = [ClassifierOutputTarget(1)]
         grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0, :]
         
-        # Resize original image to 224x224 to match the Grad-CAM output shape
-        rgb_img_resized = cv2.resize(np.float32(image_cv2) / 255, (224, 224))
-        cam_image = show_cam_on_image(rgb_img_resized, grayscale_cam, use_rgb=True)
+        # High resolution Grad-CAM matching hires image
+        target_h, target_w = image_cv2_hires.shape[:2]
+        grayscale_cam_hires = cv2.resize(grayscale_cam, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+        rgb_norm = np.float32(image_cv2_hires) / 255.0
+        cam_image = show_cam_on_image(rgb_norm, grayscale_cam_hires, use_rgb=True)
         gradcam_b64 = get_base64_image(cv2.cvtColor(cam_image, cv2.COLOR_RGB2BGR))
     except Exception as e:
         print("GradCAM error:", e)
-        # Fallback dummy heatmap if model fails
-        heatmap = cv2.applyColorMap(np.uint8(255 * np.random.rand(224, 224)), cv2.COLORMAP_JET)
-        heatmap = cv2.resize(heatmap, (image_cv2.shape[1], image_cv2.shape[0]))
-        overlay = cv2.addWeighted(image_cv2, 0.6, heatmap, 0.4, 0)
+        target_h, target_w = image_cv2_hires.shape[:2]
+        heatmap = cv2.applyColorMap(np.uint8(255 * np.random.rand(target_h, target_w)), cv2.COLORMAP_JET)
+        overlay = cv2.addWeighted(image_cv2_hires, 0.65, heatmap, 0.35, 0)
         gradcam_b64 = get_base64_image(overlay)
 
     # 3. Surgical Boundaries & Impact Logic
     pathology_percent = 0.0
     try:
         if yolo_model is not None:
-            results = yolo_model(image_pil)
-            res_plotted = results[0].plot()
+            # Run YOLO on the high-resolution image so detections & labels are cleanly proportioned
+            image_pil_hires = Image.fromarray(cv2.cvtColor(image_cv2_hires, cv2.COLOR_BGR2RGB))
+            results = yolo_model(image_pil_hires, imgsz=max(640, image_cv2_hires.shape[0]))
+            
+            # Use subtle line_width=1 and compact font_size=0.35 so labels are sleek and unobtrusive
+            res_plotted = results[0].plot(line_width=1, font_size=0.35)
             surgical_b64 = get_base64_image(res_plotted)
             
             # Dynamic Impact Ratio from YOLO
@@ -295,25 +322,38 @@ async def get_technical_details(file: UploadFile = File(...)):
             raise Exception("No YOLO")
     except Exception as e:
         print("YOLO error:", e)
-        # Fallback dummy bounding box
-        img_copy = image_cv2.copy()
+        img_copy = image_cv2_hires.copy()
         h, w = img_copy.shape[:2]
-        cv2.rectangle(img_copy, (w//4, h//4), (3*w//4, 3*h//4), (0, 0, 255), 2)
-        cv2.putText(img_copy, "Tumor Boundary", (w//4, h//4 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        cv2.rectangle(img_copy, (w//4, h//4), (3*w//4, 3*h//4), (0, 0, 255), 1)
+        cv2.putText(img_copy, "Tumor Boundary", (w//4, h//4 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
         surgical_b64 = get_base64_image(img_copy)
         pathology_percent = 15.0
 
     healthy_percent = 100.0 - pathology_percent
     if pathology_percent == 0.0:
-        pathology_percent = 0.1 # tiny sliver if 100% healthy
+        pathology_percent = 0.1
         healthy_percent = 99.9
 
-    # 4. Impact Ratio (Matplotlib)
+    # 4. Impact Ratio (Matplotlib high-res)
     try:
-        plt.figure(figsize=(4, 4))
-        plt.pie([healthy_percent, pathology_percent], labels=['Healthy', 'Pathology'], colors=['#2ecc71', '#e74c3c'], autopct='%1.1f%%', wedgeprops=dict(width=0.4))
+        plt.figure(figsize=(6, 6), dpi=220)
+        wedges, texts, autotexts = plt.pie(
+            [healthy_percent, pathology_percent], 
+            labels=['Healthy Tissue', 'Pathology'], 
+            colors=['#10b981', '#ef4444'], 
+            autopct='%1.1f%%', 
+            pctdistance=0.75,
+            startangle=140,
+            textprops={'fontsize': 13, 'weight': 'bold'},
+            wedgeprops=dict(width=0.42, edgecolor='white', linewidth=3)
+        )
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontsize(13)
+            autotext.set_weight('bold')
+        plt.tight_layout()
         buf = io.BytesIO()
-        plt.savefig(buf, format='jpg', bbox_inches='tight', transparent=True)
+        plt.savefig(buf, format='png', bbox_inches='tight', transparent=True, dpi=220)
         buf.seek(0)
         impact_b64 = base64.b64encode(buf.read()).decode('utf-8')
         plt.close()
@@ -328,6 +368,58 @@ async def get_technical_details(file: UploadFile = File(...)):
         "impact_ratio": impact_b64
     }
 
+# =========================================================
+# LLM Multimodal Clinical Copilot (from capstone_llm.ipynb)
+# =========================================================
+from llm_copilot import LLMCopilot, CLINICAL_PRESETS
+from typing import Dict, Any
+
+copilot_engine = LLMCopilot(use_llm=True, api_provider="gemini")
+
+class LLMReportRequest(BaseModel):
+    patient_notes: str = ""
+    doctor_prescription: str = ""
+    patient_name: str = ""
+    patient_age: str = ""
+    classification: str = "Normal"
+    confidence: float = 98.0
+    left_volume: int = 140
+    right_volume: int = 142
+    consumption_ratio: float = 18.5
+
+class LLMChatRequest(BaseModel):
+    message: str
+    conversation_history: List[Dict[str, str]] = []
+    patient_context: Dict[str, Any] = {}
+
+@app.get("/api/llm/presets")
+def get_clinical_presets():
+    return {"presets": CLINICAL_PRESETS}
+
+@app.post("/api/llm/generate_report")
+def generate_llm_report(req: LLMReportRequest):
+    notes = req.patient_notes
+    if not notes and req.doctor_prescription:
+        notes = f"Patient {req.patient_name or 'Patient'} (Age: {req.patient_age or 'N/A'}). Prescription & Notes: {req.doctor_prescription}"
+    elif not notes:
+        notes = f"Patient {req.patient_name or 'Patient'} (Age: {req.patient_age or 'N/A'}). General checkup."
+
+    vision_data = {
+        "diagnosis": req.classification,
+        "classification": req.classification,
+        "confidence": req.confidence,
+        "left_volume": req.left_volume,
+        "right_volume": req.right_volume,
+        "consumption_ratio": req.consumption_ratio,
+        "doctor_prescription": req.doctor_prescription
+    }
+    return copilot_engine.generate_multimodal_report(notes, vision_data)
+
+@app.post("/api/llm/chat")
+def chat_with_copilot(req: LLMChatRequest):
+    reply = copilot_engine.chat_copilot(req.message, req.conversation_history, req.patient_context)
+    return {"reply": reply}
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

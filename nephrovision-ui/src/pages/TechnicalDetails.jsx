@@ -267,7 +267,7 @@ const TechnicalDetails = () => {
     <div className="page-container animate-fade-in" style={{ maxWidth: '1240px', margin: '0 auto', paddingBottom: '3rem' }}>
       {/* Header Bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
-        <Button variant="secondary" size="sm" onClick={() => navigate(-1)}>
+        <Button variant="secondary" size="sm" onClick={() => navigate('/results', { state: location.state })}>
           <ArrowLeft size={16} /> Back to Results
         </Button>
         <div style={{ textAlign: 'center' }}>

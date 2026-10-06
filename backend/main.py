@@ -303,7 +303,13 @@ async def get_technical_details(file: UploadFile = File(...)):
         target_layers = [model.stage4]
         cam = GradCAM(model=model, target_layers=target_layers)
         input_tensor = transform(image_pil).unsqueeze(0).to(device)
-        targets = [ClassifierOutputTarget(1)]
+        
+        with torch.no_grad():
+            output = model(input_tensor)
+            _, predicted = torch.max(output, 1)
+        pred_idx = predicted.item()
+        
+        targets = [ClassifierOutputTarget(pred_idx)]
         grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0, :]
         
         # High resolution Grad-CAM matching hires image

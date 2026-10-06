@@ -7,26 +7,41 @@ import Button from '../components/ui/Button';
 const Results = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const filename = location.state?.filename || 'Patient_CT_0042.dcm';
-  const imageUrl = location.state?.imageUrl || '';
-  const patientName = location.state?.patientName || '';
-  const patientAge = location.state?.patientAge || '';
-  const doctorPrescription = location.state?.doctorPrescription || '';
-  const signSymptom = location.state?.signSymptom || '';
-  const distance = location.state?.distance || '';
-  const history = location.state?.history || '';
-  const medication = location.state?.medication || '';
-  const isTumor = location.state?.isTumor || false;
-  const isCyst = location.state?.isCyst || false;
-  const classification = location.state?.classification || "Normal Kidney Structure Detected";
-  const confidence = location.state?.confidence || 98.7;
-  const leftVolume = location.state?.leftVolume || 142;
-  const rightVolume = location.state?.rightVolume || 138;
-  const message = location.state?.message || "No visible abnormalities, cysts, or tumors identified in the highlighted regions.";
-  const boundingBoxes = location.state?.boundingBoxes || [];
+  
+  // Recover state from localStorage if React Router dropped it due to size limits
+  let state = location.state;
+  if (!state) {
+    try {
+      const storedHistory = JSON.parse(localStorage.getItem('recentAnalyses') || '[]');
+      if (storedHistory.length > 0) {
+        state = storedHistory[0];
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  state = state || {};
+
+  const filename = state.filename || 'Patient_CT_0042.dcm';
+  const imageUrl = state.imageUrl || '';
+  const patientName = state.patientName || '';
+  const patientAge = state.patientAge || '';
+  const doctorPrescription = state.doctorPrescription || '';
+  const signSymptom = state.signSymptom || '';
+  const distance = state.distance || '';
+  const history = state.history || '';
+  const medication = state.medication || '';
+  const isTumor = state.isTumor || false;
+  const isCyst = state.isCyst || false;
+  const classification = state.classification || "Normal Kidney Structure Detected";
+  const confidence = state.confidence || 98.7;
+  const leftVolume = state.leftVolume || 142;
+  const rightVolume = state.rightVolume || 138;
+  const message = state.message || "No visible abnormalities, cysts, or tumors identified in the highlighted regions.";
+  const boundingBoxes = state.boundingBoxes || [];
 
   // LLM Copilot State
-  const [llmReport, setLlmReport] = useState(location.state?.llmReport || null);
+  const [llmReport, setLlmReport] = useState(state.llmReport || null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [llmError, setLlmError] = useState(null);
   const [activeReportTab, setActiveReportTab] = useState('executive'); // executive | surgical | nutrition | patient
@@ -124,13 +139,13 @@ const Results = () => {
           <p className="text-muted">{filename} processed successfully.</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
-          <Button variant="secondary" onClick={() => navigate('/technical-details', { state: location.state })}>
+          <Button variant="secondary" onClick={() => navigate('/technical-details', { state: state })}>
             Technical Detail
           </Button>
           <Button variant="secondary" onClick={() => window.print()}>
             <Printer size={18} /> Print
           </Button>
-          <Button onClick={() => navigate('/report', { state: { ...location.state, filename, patientName, patientAge, doctorPrescription, signSymptom, distance, history, medication, isTumor, isCyst, classification, confidence, leftVolume, rightVolume, message, llmReport } })}>
+          <Button onClick={() => navigate('/report', { state: { ...state, filename, patientName, patientAge, doctorPrescription, signSymptom, distance, history, medication, isTumor, isCyst, classification, confidence, leftVolume, rightVolume, message, llmReport } })}>
             <Download size={18} /> Generate Report
           </Button>
         </div>

@@ -287,87 +287,172 @@ def enhance_and_upscale(img, min_dim=768):
 async def get_technical_details(file: UploadFile = File(...)):
     contents = await file.read()
     image_pil = Image.open(io.BytesIO(contents)).convert('RGB')
-    image_cv2 = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
-    
-    # Upscale to crisp high resolution (min 768px)
+    # Keep an RGB numpy array as the master - everything derives from it
+    image_rgb = np.array(image_pil)
+    image_cv2 = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+
+    # Upscale to crisp high resolution (min 768px) - stays BGR for cv2 ops
     image_cv2_hires = enhance_and_upscale(image_cv2, min_dim=768)
-    
-    # 1. Original
+    # RGB hires version for GradCAM overlay
+    image_rgb_hires = cv2.cvtColor(image_cv2_hires, cv2.COLOR_BGR2RGB)
+
+    # 1. Original — already BGR so get_base64_image is correct
     original_b64 = get_base64_image(image_cv2_hires)
-    
-    # 2. Grad-CAM
+
+    # 2. Grad-CAM — target model.stage4.pcsa (PCSA attention is the key novel layer)
+    gradcam_b64 = ""
+    pred_idx = 1  # default Normal
     try:
         from pytorch_grad_cam import GradCAM
         from pytorch_grad_cam.utils.image import show_cam_on_image
         from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
-        target_layers = [model.stage4]
+
+        # Best GradCAM target = the PCSA module inside stage4
+        # This is where the model's spatial attention lives
+        target_layers = [model.stage4.pcsa]
+
         cam = GradCAM(model=model, target_layers=target_layers)
         input_tensor = transform(image_pil).unsqueeze(0).to(device)
-        
+
+        # First get prediction so we target the correct predicted class
         with torch.no_grad():
-            output = model(input_tensor)
-            _, predicted = torch.max(output, 1)
+            raw_output = model(input_tensor)
+            probs = torch.softmax(raw_output, dim=1)
+            _, predicted = torch.max(probs, 1)
         pred_idx = predicted.item()
-        
+
         targets = [ClassifierOutputTarget(pred_idx)]
         grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0, :]
-        
-        # High resolution Grad-CAM matching hires image
-        target_h, target_w = image_cv2_hires.shape[:2]
+
+        # Resize cam to match hires image
+        target_h, target_w = image_rgb_hires.shape[:2]
         grayscale_cam_hires = cv2.resize(grayscale_cam, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
-        rgb_norm = np.float32(image_cv2_hires) / 255.0
-        cam_image = show_cam_on_image(rgb_norm, grayscale_cam_hires, use_rgb=True)
-        gradcam_b64 = get_base64_image(cv2.cvtColor(cam_image, cv2.COLOR_RGB2BGR))
+
+        # show_cam_on_image expects RGB float [0,1] — use image_rgb_hires
+        rgb_norm = np.float32(image_rgb_hires) / 255.0
+        cam_image_rgb = show_cam_on_image(rgb_norm, grayscale_cam_hires, use_rgb=True)
+
+        # Convert back to BGR for cv2.imencode inside get_base64_image
+        cam_image_bgr = cv2.cvtColor(cam_image_rgb, cv2.COLOR_RGB2BGR)
+        gradcam_b64 = get_base64_image(cam_image_bgr)
     except Exception as e:
         print("GradCAM error:", e)
-        target_h, target_w = image_cv2_hires.shape[:2]
-        heatmap = cv2.applyColorMap(np.uint8(255 * np.random.rand(target_h, target_w)), cv2.COLORMAP_JET)
+        # Fallback: apply jet colormap directly (no random, reproducible)
+        gray = cv2.cvtColor(image_cv2_hires, cv2.COLOR_BGR2GRAY)
+        gray_eq = cv2.equalizeHist(gray)
+        heatmap = cv2.applyColorMap(gray_eq, cv2.COLORMAP_JET)
         overlay = cv2.addWeighted(image_cv2_hires, 0.65, heatmap, 0.35, 0)
         gradcam_b64 = get_base64_image(overlay)
 
-    # 3. Surgical Boundaries & Impact Logic
-    pathology_percent = 0.0
+    # 3. Surgical Boundaries — YOLO with correct cyst coloring (dark red)
+    pathology_total_area = 0.0
+    total_kidney_area = 0.0
+    surgical_b64 = ""
     try:
         if yolo_model is not None:
-            # Run YOLO on the high-resolution image so detections & labels are cleanly proportioned
-            image_pil_hires = Image.fromarray(cv2.cvtColor(image_cv2_hires, cv2.COLOR_BGR2RGB))
-            results = yolo_model(image_pil_hires, imgsz=max(640, image_cv2_hires.shape[0]))
-            
-            # Use subtle line_width=1 and compact font_size=0.35 so labels are sleek and unobtrusive
-            res_plotted = results[0].plot(line_width=1, font_size=0.35)
-            surgical_b64 = get_base64_image(res_plotted)
-            
-            # Dynamic Impact Ratio from YOLO
-            if results[0].boxes is not None and len(results[0].boxes) > 0:
-                for box in results[0].boxes:
-                    cls_id = int(box.cls[0].item())
-                    if cls_id > 0: # 0 is kidney, >0 are pathologies
-                        pathology_percent += 18.5
-            pathology_percent = min(pathology_percent, 85.0)
+            image_pil_hires = Image.fromarray(image_rgb_hires)
+            results = yolo_model(image_pil_hires, imgsz=max(640, max(image_rgb_hires.shape[:2])))
+            result = results[0]
+
+            # Start with a clean copy of the BGR hires image for drawing
+            canvas = image_cv2_hires.copy()
+            hires_h, hires_w = canvas.shape[:2]
+
+            # Draw segmentation masks with correct per-class colors
+            if result.masks is not None:
+                masks_data = result.masks.data.cpu().numpy()  # shape: (N, H, W) binary masks
+                boxes_data = result.boxes
+
+                for i, mask in enumerate(masks_data):
+                    cls_id = int(boxes_data.cls[i].item())
+                    cls_name = result.names[cls_id].lower()
+                    conf = float(boxes_data.conf[i].item())
+
+                    # Resize mask to canvas size
+                    mask_resized = cv2.resize(mask, (hires_w, hires_h), interpolation=cv2.INTER_NEAREST)
+                    mask_bool = mask_resized > 0.5
+
+                    # Color per class: kidney=blue, cyst=dark red, tumor=red, stone=yellow
+                    if cls_name == 'cyst':
+                        color_bgr = (30, 30, 180)   # dark red in BGR
+                    elif cls_name == 'tumor':
+                        color_bgr = (0, 0, 220)     # red
+                    elif cls_name == 'stone':
+                        color_bgr = (0, 200, 220)   # yellow
+                    else:
+                        color_bgr = (200, 100, 0)   # kidney = blue-ish
+
+                    # Fill mask area
+                    overlay_layer = canvas.copy()
+                    overlay_layer[mask_bool] = color_bgr
+                    canvas = cv2.addWeighted(canvas, 0.55, overlay_layer, 0.45, 0)
+
+                    # Draw contour border
+                    contours, _ = cv2.findContours(
+                        mask_resized.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                    )
+                    cv2.drawContours(canvas, contours, -1, color_bgr, 2)
+
+                    # Label
+                    x1, y1, x2, y2 = boxes_data.xyxy[i].cpu().numpy().astype(int)
+                    # Clamp to image bounds
+                    x1, y1 = max(0, x1), max(0, y1)
+                    label = f"{cls_name} {conf:.2f}"
+                    cv2.rectangle(canvas, (x1, y1), (x2, y2), color_bgr, 1)
+                    cv2.putText(canvas, label, (x1, max(y1 - 5, 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_bgr, 1, cv2.LINE_AA)
+
+                    # Accumulate area for impact ratio
+                    pixel_area = float(np.sum(mask_bool))
+                    if cls_name in ('cyst', 'tumor', 'stone'):
+                        pathology_total_area += pixel_area
+                    total_kidney_area += pixel_area
+            else:
+                # No masks — fall back to YOLO's own plot (but fix color space)
+                res_plotted_rgb = result.plot(line_width=1, font_size=0.35)
+                # plot() returns RGB — convert to BGR for cv2
+                canvas = cv2.cvtColor(res_plotted_rgb, cv2.COLOR_RGB2BGR)
+
+            surgical_b64 = get_base64_image(canvas)
         else:
-            raise Exception("No YOLO")
+            raise Exception("No YOLO model loaded")
     except Exception as e:
         print("YOLO error:", e)
         img_copy = image_cv2_hires.copy()
         h, w = img_copy.shape[:2]
-        cv2.rectangle(img_copy, (w//4, h//4), (3*w//4, 3*h//4), (0, 0, 255), 1)
-        cv2.putText(img_copy, "Tumor Boundary", (w//4, h//4 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
+        cv2.rectangle(img_copy, (w // 4, h // 4), (3 * w // 4, 3 * h // 4), (0, 0, 200), 2)
+        cv2.putText(img_copy, "Boundary (fallback)", (w // 4, h // 4 - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 200), 1)
         surgical_b64 = get_base64_image(img_copy)
-        pathology_percent = 15.0
 
-    healthy_percent = 100.0 - pathology_percent
-    if pathology_percent == 0.0:
+    # 4. Impact Ratio — computed from real mask pixel areas
+    if total_kidney_area > 0:
+        pathology_percent = min((pathology_total_area / total_kidney_area) * 100.0, 85.0)
+    else:
+        # Fallback: if no masks, use YOLO box count heuristic
+        pathology_percent = 0.0
+        try:
+            for box in results[0].boxes:
+                cls_id = int(box.cls[0].item())
+                cls_name = results[0].names[cls_id].lower()
+                if cls_name in ('cyst', 'tumor', 'stone'):
+                    pathology_percent += 15.0
+            pathology_percent = min(pathology_percent, 85.0)
+        except Exception:
+            pathology_percent = 0.1
+
+    if pathology_percent < 0.1:
         pathology_percent = 0.1
-        healthy_percent = 99.9
+    healthy_percent = 100.0 - pathology_percent
 
     # 4. Impact Ratio (Matplotlib high-res)
     try:
         plt.figure(figsize=(6, 6), dpi=220)
         wedges, texts, autotexts = plt.pie(
-            [healthy_percent, pathology_percent], 
-            labels=['Healthy Tissue', 'Pathology'], 
-            colors=['#10b981', '#ef4444'], 
-            autopct='%1.1f%%', 
+            [healthy_percent, pathology_percent],
+            labels=['Healthy Tissue', 'Pathology'],
+            colors=['#10b981', '#ef4444'],
+            autopct='%1.1f%%',
             pctdistance=0.75,
             startangle=140,
             textprops={'fontsize': 13, 'weight': 'bold'},
@@ -386,7 +471,7 @@ async def get_technical_details(file: UploadFile = File(...)):
     except Exception as e:
         print("Chart error:", e)
         impact_b64 = ""
-        
+
     return {
         "original_image": original_b64,
         "gradcam_image": gradcam_b64,

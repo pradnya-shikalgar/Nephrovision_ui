@@ -307,9 +307,12 @@ async def get_technical_details(file: UploadFile = File(...)):
         from pytorch_grad_cam.utils.image import show_cam_on_image
         from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-        # Best GradCAM target = the PCSA module inside stage4
-        # This is where the model's spatial attention lives
-        target_layers = [model.stage4.pcsa]
+        # Best GradCAM target = model.stage4.gelu
+        # This is the 7x7 spatial feature map AFTER compress_conv+BN+GELU, BEFORE the PCSA module.
+        # model.stage4.pcsa is WRONG: it runs AdaptiveAvgPool2d(1) internally which
+        # collapses spatial gradients to a single value, causing the heatmap to be
+        # diffuse and mislocalized (shows spine/center instead of kidney region).
+        target_layers = [model.stage4.gelu]
 
         cam = GradCAM(model=model, target_layers=target_layers)
         input_tensor = transform(image_pil).unsqueeze(0).to(device)

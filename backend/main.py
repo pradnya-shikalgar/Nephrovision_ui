@@ -161,6 +161,16 @@ async def analyze_image(
             classification = class_names[pred_idx]
             confidence = round(conf.item() * 100, 2)
             
+            # Override classification if YOLO found a pathology box
+            if len(bounding_boxes) > 0:
+                yolo_classes = [box.class_name.lower() for box in bounding_boxes]
+                if 'tumor' in yolo_classes:
+                    classification = 'Tumor'
+                elif 'cyst' in yolo_classes:
+                    classification = 'Cyst'
+                elif 'stone' in yolo_classes:
+                    classification = 'Stone'
+            
         except Exception as e:
             print(f"Inference error: {e}")
             # fallback to normal
@@ -180,6 +190,16 @@ async def analyze_image(
         else:
             classification = "Normal"
             confidence = round(random.uniform(95.0, 99.9), 1)
+
+    # Override mock classification if YOLO found a pathology box
+    if len(bounding_boxes) > 0:
+        yolo_classes = [box.class_name.lower() for box in bounding_boxes]
+        if 'tumor' in yolo_classes:
+            classification = 'Tumor'
+        elif 'cyst' in yolo_classes:
+            classification = 'Cyst'
+        elif 'stone' in yolo_classes:
+            classification = 'Stone'
 
     is_tumor = classification == "Tumor"
     is_cyst = classification == "Cyst"

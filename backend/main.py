@@ -330,6 +330,41 @@ async def get_technical_details(file: UploadFile = File(...)):
         grayscale_cam = cam(input_tensor=input_tensor,
                             targets=[ClassifierOutputTarget(pred_idx)])[0, :]
         grayscale_cam_hires = cv2.resize(grayscale_cam, (hires_w, hires_h), interpolation=cv2.INTER_CUBIC)
+
+        # Get spatial alignment mask from existing YOLO model output
+        focus_mask = None
+        has_focus = False
+        if yolo_model is not None:
+            image_pil_hires = Image.fromarray(image_rgb_hires)
+            yolo_result = yolo_model(image_pil_hires, imgsz=max(640, max(hires_h, hires_w)))[0]
+            focus_mask = np.zeros((hires_h, hires_w), dtype=np.float32)
+            if yolo_result.masks is not None:
+                for i, mask in enumerate(yolo_result.masks.data.cpu().numpy()):
+                    cls_id = int(yolo_result.boxes.cls[i].item())
+                    cls_name = yolo_result.names[cls_id].lower()
+                    if cls_name in ('cyst', 'tumor', 'stone'):
+                        mask_resized = cv2.resize(mask, (hires_w, hires_h), interpolation=cv2.INTER_NEAREST)
+                        focus_mask = np.maximum(focus_mask, (mask_resized > 0.5).astype(np.float32))
+            else:
+                for box in yolo_result.boxes:
+                    cls_id = int(box.cls[0].item())
+                    cls_name = yolo_result.names[cls_id].lower()
+                    if cls_name in ('cyst', 'tumor', 'stone'):
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                        x1, y1, x2, y2 = max(0, x1), max(0, y1), min(hires_w, x2), min(hires_h, y2)
+                        focus_mask[y1:y2, x1:x2] = 1.0
+
+            kernel = np.ones((30, 30), np.uint8)
+            focus_mask = cv2.dilate(focus_mask.astype(np.uint8), kernel, iterations=1).astype(np.float32)
+            focus_mask = cv2.GaussianBlur(focus_mask, (51, 51), 0)
+            has_focus = focus_mask.max() > 0
+
+        # Mask the CAM with the detected lesion region
+        if has_focus and focus_mask is not None:
+            fm = focus_mask / (focus_mask.max() + 1e-8)
+            fm = np.clip(fm * 1.0 + 0.15, 0.0, 1.0)
+            grayscale_cam_hires = grayscale_cam_hires * fm
+
         cam_min, cam_max = grayscale_cam_hires.min(), grayscale_cam_hires.max()
         if cam_max > cam_min:
             grayscale_cam_hires = (grayscale_cam_hires - cam_min) / (cam_max - cam_min)

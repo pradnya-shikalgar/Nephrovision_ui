@@ -408,117 +408,43 @@ async def get_technical_details(file: UploadFile = File(...)):
         print("PCSA Attention error:", e)
         pcsa_b64 = gradcam_b64
 
-    # â”€â”€ 4. Surgical Boundaries (YOLO, per-class colors, clear labels) â”€â”€â”€â”€â”€â”€â”€â”€
-    pathology_total_area = 0.0
-    total_kidney_area = 0.0
+    # -- 4. Surgical Boundaries --------
     surgical_b64 = ""
+    pathology_percent = 0.0
     try:
         if yolo_model is not None:
             image_pil_hires = Image.fromarray(image_rgb_hires)
             yolo_res = yolo_model(image_pil_hires, imgsz=max(640, max(image_rgb_hires.shape[:2])))
             result = yolo_res[0]
-            canvas = image_cv2_hires.copy()
-
-            # BGR colors per class
-            CLASS_COLORS = {
-                'cyst':   (30,  30, 200),   # dark red
-                'tumor':  (0,   0, 230),    # red
-                'stone':  (0,  210, 230),   # yellow
-                'kidney': (180, 80,  0),    # blue
-            }
-
-            if result.masks is not None:
-                masks_data = result.masks.data.cpu().numpy()
-                boxes_data = result.boxes
-                # Draw kidneys first, pathologies on top
-                draw_order = sorted(
-                    range(len(masks_data)),
-                    key=lambda i: 0 if result.names[int(boxes_data.cls[i].item())].lower() == 'kidney' else 1
-                )
-                for i in draw_order:
-                    cls_id   = int(boxes_data.cls[i].item())
-                    cls_name = result.names[cls_id].lower()
-                    conf     = float(boxes_data.conf[i].item())
-                    color    = CLASS_COLORS.get(cls_name, (150, 150, 0))
-
-                    mask_r = cv2.resize(masks_data[i], (hires_w, hires_h), interpolation=cv2.INTER_NEAREST)
-                    mask_b = mask_r > 0.5
-
-                    layer = canvas.copy()
-                    layer[mask_b] = color
-                    alpha = 0.30 if cls_name == 'kidney' else 0.50
-                    canvas = cv2.addWeighted(canvas, 1 - alpha, layer, alpha, 0)
-
-                    contours, _ = cv2.findContours(mask_r.astype(np.uint8),
-                                                   cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    thick = 3 if cls_name != 'kidney' else 1
-                    cv2.drawContours(canvas, contours, -1, color, thick)
-
-                    x1, y1, x2, y2 = boxes_data.xyxy[i].cpu().numpy().astype(int)
-                    x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(hires_w - 1, x2), min(hires_h - 1, y2)
-
-                    if cls_name != 'kidney':
-                        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
-                        label = f"{cls_name.upper()} {conf:.0%}"
-                        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-                        cv2.rectangle(canvas, (x1, y1 - th - 12), (x1 + tw + 8, y1), color, -1)
-                        cv2.putText(canvas, label, (x1 + 4, y1 - 5),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
-                    else:
-                        cv2.putText(canvas, f"kidney {conf:.0%}", (x1, max(y1 - 4, 12)),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
-
-                    pixel_area = float(np.sum(mask_b))
-                    if cls_name in ('cyst', 'tumor', 'stone'):
-                        pathology_total_area += pixel_area
-                    total_kidney_area += pixel_area
-            else:
+            
+            # Use YOLO's native plot for boundaries
+            # result.plot() returns an RGB numpy array - convert to BGR for cv2.imencode
+            res_plotted_rgb = result.plot(line_width=1, font_size=0.35)
+            res_plotted_bgr = cv2.cvtColor(res_plotted_rgb, cv2.COLOR_RGB2BGR)
+            surgical_b64 = get_base64_image(res_plotted_bgr)
+            
+            # Dynamic Impact Ratio from YOLO
+            if result.boxes is not None and len(result.boxes) > 0:
                 for box in result.boxes:
-                    cls_id   = int(box.cls[0].item())
-                    cls_name = result.names[cls_id].lower()
-                    conf     = float(box.conf[0].item())
-                    color    = CLASS_COLORS.get(cls_name, (150, 150, 0))
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-                    x1, y1 = max(0, x1), max(0, y1)
-                    cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
-                    label = f"{cls_name.upper()} {conf:.0%}"
-                    cv2.putText(canvas, label, (x1, max(y1 - 5, 12)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
-                    box_area = (x2 - x1) * (y2 - y1)
-                    if cls_name in ('cyst', 'tumor', 'stone'):
-                        pathology_total_area += box_area * 0.7
-                    total_kidney_area += box_area
-
-            # Legend (top-left)
-            legend_y = 14
-            for lname, lcolor in [('KIDNEY', CLASS_COLORS['kidney']),
-                                   ('CYST',   CLASS_COLORS['cyst']),
-                                   ('TUMOR',  CLASS_COLORS['tumor']),
-                                   ('STONE',  CLASS_COLORS['stone'])]:
-                cv2.circle(canvas, (12, legend_y), 5, lcolor, -1)
-                cv2.putText(canvas, lname, (22, legend_y + 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.38, lcolor, 1, cv2.LINE_AA)
-                legend_y += 18
-
-            surgical_b64 = get_base64_image(canvas)
+                    cls_id = int(box.cls[0].item())
+                    if cls_id > 0: # 0 is kidney, >0 are pathologies
+                        pathology_percent += 18.5
+            pathology_percent = min(pathology_percent, 85.0)
         else:
             raise Exception("No YOLO model loaded")
     except Exception as e:
         print("YOLO error:", e)
         img_copy = image_cv2_hires.copy()
         h2e, w2e = img_copy.shape[:2]
-        cv2.rectangle(img_copy, (w2e // 4, h2e // 4), (3 * w2e // 4, 3 * h2e // 4), (0, 0, 200), 2)
+        cv2.rectangle(img_copy, (w2e // 4, h2e // 4), (3 * w2e // 4, 3 * h2e // 4), (0, 0, 255), 1)
         cv2.putText(img_copy, "Boundary (fallback)", (w2e // 4, h2e // 4 - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 200), 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         surgical_b64 = get_base64_image(img_copy)
+        pathology_percent = 15.0
 
-    # â”€â”€ 5. Impact Ratio (real pixel area) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    if total_kidney_area > 0:
-        pathology_percent = min((pathology_total_area / total_kidney_area) * 100.0, 85.0)
-    else:
+    # -- 5. Impact Ratio -----------------------------------
+    if pathology_percent == 0.0:
         pathology_percent = 0.1
-    pathology_percent = max(pathology_percent, 0.1)
     healthy_percent = 100.0 - pathology_percent
 
     try:

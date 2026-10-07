@@ -135,20 +135,30 @@ const TechnicalDetails = () => {
     {
       id: 2,
       number: "2",
-      title: "2. PCSA Attention Map",
-      shortTitle: "PCSA Attention Map",
+      title: "2. Grad-CAM",
+      shortTitle: "Grad-CAM",
       tag: "Explainable AI (Grad-CAM)",
-      description: "Pixel-level spatial and channel attention activation map from PCSA KidneyNeXt, highlighting salient morphological regions driving neural classification.",
+      description: "Gradient-weighted Class Activation Map computed from model.stage4.gelu — the last clean 7×7 spatial feature map before global pooling. Highlights which spatial regions most strongly drove the model's predicted classification.",
       imageSrc: getImageSrc(images?.gradcam_image, null),
       badgeColor: "#8b5cf6"
     },
     {
       id: 3,
       number: "3",
-      title: "3. Surgical Boundaries",
+      title: "3. PCSA Attention Map",
+      shortTitle: "PCSA Attention Map",
+      tag: "PCSA Spatial Attention",
+      description: "Real spatial attention weights extracted from the PCSA (Pyramid Channel & Spatial Attention) module of the KidneyNeXt model via forward hook. Shows where the model's spatial attention is focusing during inference.",
+      imageSrc: getImageSrc(images?.pcsa_attention, null),
+      badgeColor: "#06b6d4"
+    },
+    {
+      id: 4,
+      number: "4",
+      title: "4. Surgical Boundaries",
       shortTitle: "Surgical Boundaries",
       tag: "YOLOv8 Segmentation",
-      description: "Deep-learning predicted boundary contours and bounding boxes delineating organ margins, suspected lesions, and resection safety zones.",
+      description: "Deep-learning predicted boundary contours and bounding boxes delineating organ margins, suspected lesions, and resection safety zones. Cyst = dark red, Tumor = red, Stone = yellow, Kidney = blue.",
       imageSrc: getImageSrc(images?.surgical_boundaries, null),
       badgeColor: "#f59e0b"
     },

@@ -295,10 +295,10 @@ async def get_technical_details(file: UploadFile = File(...)):
     image_rgb_hires = cv2.cvtColor(image_cv2_hires, cv2.COLOR_BGR2RGB)
     hires_h, hires_w = image_cv2_hires.shape[:2]
 
-    # ── 1. Original ─────────────────────────────────────────────────────────
+    # â”€â”€ 1. Original â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     original_b64 = get_base64_image(image_cv2_hires)
 
-    # ── Shared: run model once with hooks to capture internal tensors ────────
+    # â”€â”€ Shared: run model once with hooks to capture internal tensors â”€â”€â”€â”€â”€â”€â”€â”€
     input_tensor = transform(image_pil).unsqueeze(0).to(device)
     pred_idx = 1
     _hook_data = {}
@@ -318,7 +318,7 @@ async def get_technical_details(file: UploadFile = File(...)):
 
     h1.remove(); h2.remove()
 
-    # ── 2. Grad-CAM (stage4.gelu — 7x7 spatial, clean gradient target) ──────
+    # â”€â”€ 2. Grad-CAM (stage4.gelu â€” 7x7 spatial, clean gradient target) â”€â”€â”€â”€â”€â”€
     gradcam_b64 = ""
     try:
         from pytorch_grad_cam import GradCAM
@@ -346,7 +346,7 @@ async def get_technical_details(file: UploadFile = File(...)):
         heatmap = cv2.applyColorMap(cv2.equalizeHist(gray), cv2.COLORMAP_JET)
         gradcam_b64 = get_base64_image(cv2.addWeighted(image_cv2_hires, 0.65, heatmap, 0.35, 0))
 
-    # ── 3. PCSA Attention Map (real spatial attention from PCSAModule hooks) ─
+    # â”€â”€ 3. PCSA Attention Map (real spatial attention from PCSAModule hooks) â”€
     pcsa_b64 = ""
     try:
         if 's3' in _hook_data and 's5' in _hook_data:
@@ -373,7 +373,7 @@ async def get_technical_details(file: UploadFile = File(...)):
         print("PCSA Attention error:", e)
         pcsa_b64 = gradcam_b64
 
-    # ── 4. Surgical Boundaries (YOLO, per-class colors, clear labels) ────────
+    # â”€â”€ 4. Surgical Boundaries (YOLO, per-class colors, clear labels) â”€â”€â”€â”€â”€â”€â”€â”€
     pathology_total_area = 0.0
     total_kidney_area = 0.0
     surgical_b64 = ""
@@ -478,7 +478,7 @@ async def get_technical_details(file: UploadFile = File(...)):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 200), 1)
         surgical_b64 = get_base64_image(img_copy)
 
-    # ── 5. Impact Ratio (real pixel area) ───────────────────────────────────
+    # â”€â”€ 5. Impact Ratio (real pixel area) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if total_kidney_area > 0:
         pathology_percent = min((pathology_total_area / total_kidney_area) * 100.0, 85.0)
     else:
@@ -573,3 +573,4 @@ def chat_with_copilot(req: LLMChatRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

@@ -6,6 +6,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import torch
+torch.set_num_threads(1)
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 import matplotlib
@@ -18,6 +19,7 @@ import json
 import urllib.parse
 from datetime import datetime
 import cv2
+cv2.setNumThreads(1)
 import numpy as np
 import base64
 

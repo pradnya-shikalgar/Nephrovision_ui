@@ -78,25 +78,55 @@ const TechnicalDetails = () => {
       const formData = new FormData();
       formData.append('file', targetFile);
       
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
       try {
         let response;
         try {
           response = await fetch(`${API_BASE}/api/technical_details`, {
             method: 'POST',
             body: formData,
+            signal: controller.signal
           });
         } catch (err) {
           if (API_BASE !== 'http://localhost:8000') {
-            response = await fetch('http://localhost:8000/api/technical_details', {
-              method: 'POST',
-              body: formData,
-            });
+            try {
+              response = await fetch('http://localhost:8000/api/technical_details', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+              });
+            } catch (innerErr) {
+              clearTimeout(timeoutId);
+              if (isMounted) {
+                const sim = generateSimulatedDetails(imageUrl);
+                setImages(sim);
+                setLoading(false);
+              }
+              return;
+            }
           } else {
-            throw err;
+            clearTimeout(timeoutId);
+            if (isMounted) {
+              const sim = generateSimulatedDetails(imageUrl);
+              setImages(sim);
+              setLoading(false);
+            }
+            return;
           }
+        } finally {
+          clearTimeout(timeoutId);
         }
         
-        if (!response.ok) throw new Error("API Request Failed with status: " + response.status);
+        if (!response || !response.ok) {
+          if (isMounted) {
+            const sim = generateSimulatedDetails(imageUrl);
+            setImages(sim);
+            setLoading(false);
+          }
+          return;
+        }
         const data = await response.json();
         if (isMounted) {
           setImages(data);

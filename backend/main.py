@@ -282,6 +282,18 @@ class_names = ['Cyst', 'Normal', 'Stone', 'Tumor']
 def read_root():
     return {"message": "NephroVision Backend is running"}
 
+@app.get("/api/test_inference")
+def test_inference():
+    import time
+    t0 = time.time()
+    x = torch.zeros((1, 3, 224, 224), dtype=torch.float32)
+    if model is not None:
+        with torch.no_grad():
+            out = model(x)
+            pred = out.argmax().item()
+        return {"status": "ok", "model_loaded": True, "pred": pred, "time_ms": round((time.time() - t0) * 1000, 2)}
+    return {"status": "ok", "model_loaded": False, "time_ms": round((time.time() - t0) * 1000, 2)}
+
 @app.post("/api/analyze", response_model=AnalysisResponse)
 def analyze_image(
     file: UploadFile = File(...),

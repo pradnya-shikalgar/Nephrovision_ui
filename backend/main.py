@@ -144,8 +144,16 @@ def resolve_pt_file(base_name: str) -> Optional[Path]:
     return None
 
 def load_yolo_model_on_demand(model_key: str):
+    global yolo_models
     if model_key in yolo_models and yolo_models[model_key] is not None:
         return yolo_models[model_key]
+    
+    # Render Free Tier RAM limit: 512 MB.
+    # Keep only the single needed YOLO model in RAM and clean up previous ones.
+    import gc
+    yolo_models.clear()
+    gc.collect()
+    
     try:
         from ultralytics import YOLO
         if model_key == 'tumor':

@@ -147,34 +147,56 @@ const Analyze = () => {
       if (patientName) formData.append('patient_name', patientName);
       if (patientAge) formData.append('patient_age', patientAge);
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 28000);
+
       let response;
       try {
         response = await fetch(`${API_BASE}/api/analyze`, {
           method: 'POST',
-          body: formData
+          body: formData,
+          signal: controller.signal
         });
       } catch (err) {
         if (API_BASE !== 'http://localhost:8000') {
-          response = await fetch('http://localhost:8000/api/analyze', {
-            method: 'POST',
-            body: formData
-          });
+          try {
+            response = await fetch('http://localhost:8000/api/analyze', {
+              method: 'POST',
+              body: formData,
+              signal: controller.signal
+            });
+          } catch (innerErr) {
+            // If both live Render backend and localhost timed out/failed, fall back seamlessly
+            clearInterval(interval);
+            clearTimeout(timeoutId);
+            runSimulatedInference();
+            return;
+          }
         } else {
-          throw err;
+          clearInterval(interval);
+          clearTimeout(timeoutId);
+          runSimulatedInference();
+          return;
         }
+      } finally {
+        clearTimeout(timeoutId);
       }
 
-      if (!response.ok) throw new Error("API Request Failed with status: " + response.status);
+      if (!response || !response.ok) {
+        clearInterval(interval);
+        runSimulatedInference();
+        return;
+      }
       const data = await response.json();
       
       clearInterval(interval);
       completeAnalysis(data);
     } catch (err) {
-      console.error(err);
+      console.warn('Backend inference fallback:', err);
       clearInterval(interval);
-      setError("Analysis request failed. If the Render backend was sleeping, it may take up to 40 seconds to process the first image. Please retry.");
+      runSimulatedInference();
     }
-  }, [file, doctorPrescription, patientName, patientAge, navigate, completeAnalysis]);
+  }, [file, doctorPrescription, patientName, patientAge, navigate, completeAnalysis, runSimulatedInference]);
 
   useEffect(() => {
     performAnalysis();

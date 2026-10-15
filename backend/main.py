@@ -17,6 +17,9 @@ from typing import List, Optional
 import json
 import urllib.parse
 from datetime import datetime
+import cv2
+import numpy as np
+import base64
 
 # Base directories for robust absolute path resolution
 BASE_DIR = Path(__file__).resolve().parent

@@ -147,56 +147,34 @@ const Analyze = () => {
       if (patientName) formData.append('patient_name', patientName);
       if (patientAge) formData.append('patient_age', patientAge);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 28000);
-
       let response;
       try {
         response = await fetch(`${API_BASE}/api/analyze`, {
           method: 'POST',
-          body: formData,
-          signal: controller.signal
+          body: formData
         });
       } catch (err) {
         if (API_BASE !== 'http://localhost:8000') {
-          try {
-            response = await fetch('http://localhost:8000/api/analyze', {
-              method: 'POST',
-              body: formData,
-              signal: controller.signal
-            });
-          } catch (innerErr) {
-            // If both live Render backend and localhost timed out/failed, fall back seamlessly
-            clearInterval(interval);
-            clearTimeout(timeoutId);
-            runSimulatedInference();
-            return;
-          }
+          response = await fetch('http://localhost:8000/api/analyze', {
+            method: 'POST',
+            body: formData
+          });
         } else {
-          clearInterval(interval);
-          clearTimeout(timeoutId);
-          runSimulatedInference();
-          return;
+          throw err;
         }
-      } finally {
-        clearTimeout(timeoutId);
       }
 
-      if (!response || !response.ok) {
-        clearInterval(interval);
-        runSimulatedInference();
-        return;
-      }
+      if (!response.ok) throw new Error("API Request Failed with status: " + response.status);
       const data = await response.json();
       
       clearInterval(interval);
       completeAnalysis(data);
     } catch (err) {
-      console.warn('Backend inference fallback:', err);
+      console.error(err);
       clearInterval(interval);
-      runSimulatedInference();
+      setError("Analysis failed to connect to backend server. Make sure FastAPI server is running.");
     }
-  }, [file, doctorPrescription, patientName, patientAge, navigate, completeAnalysis, runSimulatedInference]);
+  }, [file, doctorPrescription, patientName, patientAge, navigate, completeAnalysis]);
 
   useEffect(() => {
     performAnalysis();

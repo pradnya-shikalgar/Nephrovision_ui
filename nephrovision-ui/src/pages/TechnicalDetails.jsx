@@ -78,65 +78,34 @@ const TechnicalDetails = () => {
       const formData = new FormData();
       formData.append('file', targetFile);
       
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-
       try {
         let response;
         try {
           response = await fetch(`${API_BASE}/api/technical_details`, {
             method: 'POST',
             body: formData,
-            signal: controller.signal
           });
         } catch (err) {
           if (API_BASE !== 'http://localhost:8000') {
-            try {
-              response = await fetch('http://localhost:8000/api/technical_details', {
-                method: 'POST',
-                body: formData,
-                signal: controller.signal
-              });
-            } catch (innerErr) {
-              clearTimeout(timeoutId);
-              if (isMounted) {
-                const sim = generateSimulatedDetails(imageUrl);
-                setImages(sim);
-                setLoading(false);
-              }
-              return;
-            }
+            response = await fetch('http://localhost:8000/api/technical_details', {
+              method: 'POST',
+              body: formData,
+            });
           } else {
-            clearTimeout(timeoutId);
-            if (isMounted) {
-              const sim = generateSimulatedDetails(imageUrl);
-              setImages(sim);
-              setLoading(false);
-            }
-            return;
+            throw err;
           }
-        } finally {
-          clearTimeout(timeoutId);
         }
         
-        if (!response || !response.ok) {
-          if (isMounted) {
-            const sim = generateSimulatedDetails(imageUrl);
-            setImages(sim);
-            setLoading(false);
-          }
-          return;
-        }
+        if (!response.ok) throw new Error("API Request Failed with status: " + response.status);
         const data = await response.json();
         if (isMounted) {
           setImages(data);
           setLoading(false);
         }
       } catch (err) {
-        console.warn("Technical details backend offline, generating fallback simulation", err);
+        console.error("Technical details fetch failed:", err);
         if (isMounted) {
-          const sim = generateSimulatedDetails(imageUrl);
-          setImages(sim);
+          setError("Failed to generate technical details. Please ensure the backend server is running and retry.");
           setLoading(false);
         }
       }

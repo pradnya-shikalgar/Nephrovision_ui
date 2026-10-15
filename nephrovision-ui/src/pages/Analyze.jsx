@@ -172,7 +172,7 @@ const Analyze = () => {
     } catch (err) {
       console.error(err);
       clearInterval(interval);
-      setError("Analysis failed to connect to backend server. Make sure FastAPI is running on port 8000.");
+      setError("Analysis request failed. If the Render backend was sleeping, it may take up to 40 seconds to process the first image. Please retry.");
     }
   }, [file, doctorPrescription, patientName, patientAge, navigate, completeAnalysis]);
 

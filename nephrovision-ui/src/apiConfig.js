@@ -1,4 +1,3 @@
 // Centralized API Base URL configuration
-// In production (Vercel), uses VITE_API_URL environment variable if set.
-// Otherwise falls back to localhost:8000 for local development.
-export const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+// Points to your live Render backend by default!
+export const API_BASE = (import.meta.env.VITE_API_URL || 'https://nephrovision-ui.onrender.com').replace(/\/+$/, '');

@@ -294,6 +294,43 @@ def test_inference():
         return {"status": "ok", "model_loaded": True, "pred": pred, "time_ms": round((time.time() - t0) * 1000, 2)}
     return {"status": "ok", "model_loaded": False, "time_ms": round((time.time() - t0) * 1000, 2)}
 
+@app.post("/api/debug_analyze")
+def debug_analyze(file: UploadFile = File(...)):
+    import time
+    timings = {}
+    t0 = time.time()
+    contents = file.file.read()
+    timings["read_file_ms"] = round((time.time() - t0) * 1000, 2)
+
+    t1 = time.time()
+    image = Image.open(io.BytesIO(contents)).convert('RGB')
+    input_tensor = transform(image).unsqueeze(0).to(device)
+    timings["pil_transform_ms"] = round((time.time() - t1) * 1000, 2)
+
+    t2 = time.time()
+    with torch.no_grad():
+        output = model(input_tensor)
+        probs = torch.softmax(output, dim=1)
+        conf, predicted = torch.max(probs, 1)
+    pred_idx = predicted.item()
+    cls = class_names[pred_idx]
+    timings["pcsa_infer_ms"] = round((time.time() - t2) * 1000, 2)
+    timings["predicted_class"] = cls
+
+    t3 = time.time()
+    seg_model, seg_type = get_specialized_seg_model(cls)
+    timings["yolo_load_ms"] = round((time.time() - t3) * 1000, 2)
+    timings["seg_type"] = seg_type
+
+    if seg_model is not None:
+        t4 = time.time()
+        res = seg_model.predict(source=image, imgsz=640, conf=0.02, verbose=False)[0]
+        timings["yolo_predict_ms"] = round((time.time() - t4) * 1000, 2)
+        timings["boxes_found"] = len(res.boxes)
+
+    timings["total_ms"] = round((time.time() - t0) * 1000, 2)
+    return timings
+
 @app.post("/api/analyze", response_model=AnalysisResponse)
 def analyze_image(
     file: UploadFile = File(...),

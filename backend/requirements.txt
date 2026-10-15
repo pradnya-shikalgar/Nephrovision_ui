@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi
 uvicorn[standard]
 torch
@@ -5,6 +6,6 @@ torchvision
 Pillow
 pydantic
 python-multipart
-opencv-python
+opencv-python-headless
 matplotlib
 ultralytics

@@ -19,3 +19,6 @@ backend/analyses_history.json
 *.png
 !nephrovision-ui/public/*.png
 !nephrovision-ui/src/assets/*.png
+*.pptx
+~$*
+generate_ppt.py

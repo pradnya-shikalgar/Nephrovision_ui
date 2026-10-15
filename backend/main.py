@@ -143,58 +143,60 @@ def resolve_pt_file(base_name: str) -> Optional[Path]:
                 print(f"Warning: Failed to copy {z} to {target_pt}: {e}")
     return None
 
-try:
-    from ultralytics import YOLO
-
-    # 1. Specialized Tumor Model (classes: kidney, tumor)
-    tumor_pt = resolve_pt_file('best_tumor_specialized')
-    if not tumor_pt:
-        tumor_fallback = PROJECT_ROOT / 'YOLO_Segmentation' / 'tumor_segmentation_v1' / 'weights' / 'best.pt'
-        if tumor_fallback.exists():
-            tumor_pt = tumor_fallback
-    if tumor_pt and tumor_pt.exists():
-        yolo_models['tumor'] = YOLO(str(tumor_pt))
-        print(f"Loaded Specialized Tumor YOLO model from {tumor_pt.name} (Classes: {yolo_models['tumor'].names})")
-
-    # 2. Specialized Stone Model (classes: kidney, stone)
-    stone_pt = resolve_pt_file('best_stone_specialized')
-    if stone_pt and stone_pt.exists():
-        yolo_models['stone'] = YOLO(str(stone_pt))
-        print(f"Loaded Specialized Stone YOLO model from {stone_pt.name} (Classes: {yolo_models['stone'].names})")
-
-    # 3. Specialized Cyst Model (classes: cyst, kidney)
-    cyst_pt = PROJECT_ROOT / 'YOLO_Segmentation' / 'cyst_segmentation_v1' / 'weights' / 'best.pt'
-    if cyst_pt.exists():
-        yolo_models['cyst'] = YOLO(str(cyst_pt))
-        print(f"Loaded Specialized Cyst YOLO model from {cyst_pt.name} (Classes: {yolo_models['cyst'].names})")
-
-    # 4. Unified Model (classes: kidney, tumor, cyst)
-    unified_pt = PROJECT_ROOT / 'YOLO_Segmentation' / 'unified_segmentation_v1' / 'weights' / 'best.pt'
-    if unified_pt.exists():
-        yolo_models['unified'] = YOLO(str(unified_pt))
-        print(f"Loaded Unified YOLO model from {unified_pt.name} (Classes: {yolo_models['unified'].names})")
-
-    # Backward-compatibility alias for code referencing yolo_model
-    yolo_model = yolo_models.get('unified') or yolo_models.get('tumor') or yolo_models.get('stone')
-except Exception as e:
-    print(f"Failed to load YOLO models: {e}")
-    yolo_model = None
+def load_yolo_model_on_demand(model_key: str):
+    if model_key in yolo_models and yolo_models[model_key] is not None:
+        return yolo_models[model_key]
+    try:
+        from ultralytics import YOLO
+        if model_key == 'tumor':
+            pt = resolve_pt_file('best_tumor_specialized')
+            if not pt:
+                pt = PROJECT_ROOT / 'YOLO_Segmentation' / 'tumor_segmentation_v1' / 'weights' / 'best.pt'
+            if pt and pt.exists():
+                yolo_models['tumor'] = YOLO(str(pt))
+                print(f"Loaded Specialized Tumor YOLO model from {pt.name}")
+                return yolo_models['tumor']
+        elif model_key == 'stone':
+            pt = resolve_pt_file('best_stone_specialized')
+            if pt and pt.exists():
+                yolo_models['stone'] = YOLO(str(pt))
+                print(f"Loaded Specialized Stone YOLO model from {pt.name}")
+                return yolo_models['stone']
+        elif model_key == 'cyst':
+            pt = PROJECT_ROOT / 'YOLO_Segmentation' / 'cyst_segmentation_v1' / 'weights' / 'best.pt'
+            if pt and pt.exists():
+                yolo_models['cyst'] = YOLO(str(pt))
+                print(f"Loaded Specialized Cyst YOLO model from {pt.name}")
+                return yolo_models['cyst']
+        elif model_key == 'unified':
+            pt = PROJECT_ROOT / 'YOLO_Segmentation' / 'unified_segmentation_v1' / 'weights' / 'best.pt'
+            if pt and pt.exists():
+                yolo_models['unified'] = YOLO(str(pt))
+                print(f"Loaded Unified YOLO model from {pt.name}")
+                return yolo_models['unified']
+    except Exception as e:
+        print(f"Error loading YOLO model {model_key}: {e}")
+    return None
 
 def get_specialized_seg_model(classification: str):
     """
-    Stage 2 Dynamic Routing: Selects the expert segmentation model matching the PCSA prediction.
+    Stage 2 Dynamic Routing: Lazy loads and returns the expert model matching the PCSA prediction.
     """
     cls_lower = classification.lower()
-    if 'tumor' in cls_lower and 'tumor' in yolo_models:
-        return yolo_models['tumor'], 'tumor'
-    elif 'stone' in cls_lower and 'stone' in yolo_models:
-        return yolo_models['stone'], 'stone'
-    elif 'cyst' in cls_lower and 'cyst' in yolo_models:
-        return yolo_models['cyst'], 'cyst'
-    elif 'unified' in yolo_models:
-        return yolo_models['unified'], 'unified'
-    elif 'tumor' in yolo_models:
-        return yolo_models['tumor'], 'tumor'
+    if 'tumor' in cls_lower:
+        m = load_yolo_model_on_demand('tumor')
+        if m: return m, 'tumor'
+    elif 'stone' in cls_lower:
+        m = load_yolo_model_on_demand('stone')
+        if m: return m, 'stone'
+    elif 'cyst' in cls_lower:
+        m = load_yolo_model_on_demand('cyst')
+        if m: return m, 'cyst'
+    
+    m_uni = load_yolo_model_on_demand('unified')
+    if m_uni: return m_uni, 'unified'
+    m_tum = load_yolo_model_on_demand('tumor')
+    if m_tum: return m_tum, 'tumor'
     return None, None
 
 def detect_specialized_stone_boxes(image_pil: Image.Image):

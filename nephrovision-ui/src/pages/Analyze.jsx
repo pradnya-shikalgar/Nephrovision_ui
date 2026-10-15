@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, AlertCircle, RefreshCw, PlayCircle, ArrowLeft } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import { API_BASE } from '../apiConfig';
 
 const Analyze = () => {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ const Analyze = () => {
   const completeAnalysis = useCallback((data) => {
     setProgress(100);
     setTimeout(() => {
-      const backendImgUrl = filename ? `http://localhost:8000/api/images/${encodeURIComponent(filename)}` : '';
+      const backendImgUrl = filename ? `${API_BASE}/api/images/${encodeURIComponent(filename)}` : '';
       const resolvedImageUrl = imageUrl || backendImgUrl;
 
       const analysisResult = { 
@@ -148,15 +149,19 @@ const Analyze = () => {
 
       let response;
       try {
-        response = await fetch('http://127.0.0.1:8000/api/analyze', {
+        response = await fetch(`${API_BASE}/api/analyze`, {
           method: 'POST',
           body: formData
         });
-      } catch {
-        response = await fetch('http://localhost:8000/api/analyze', {
-          method: 'POST',
-          body: formData
-        });
+      } catch (err) {
+        if (API_BASE !== 'http://localhost:8000') {
+          response = await fetch('http://localhost:8000/api/analyze', {
+            method: 'POST',
+            body: formData
+          });
+        } else {
+          throw err;
+        }
       }
 
       if (!response.ok) throw new Error("API Request Failed with status: " + response.status);

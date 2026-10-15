@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import { API_BASE } from '../apiConfig';
 
 const TechnicalDetails = () => {
   const navigate = useNavigate();
@@ -80,15 +81,19 @@ const TechnicalDetails = () => {
       try {
         let response;
         try {
-          response = await fetch('http://127.0.0.1:8000/api/technical_details', {
+          response = await fetch(`${API_BASE}/api/technical_details`, {
             method: 'POST',
             body: formData,
           });
-        } catch {
-          response = await fetch('http://localhost:8000/api/technical_details', {
-            method: 'POST',
-            body: formData,
-          });
+        } catch (err) {
+          if (API_BASE !== 'http://localhost:8000') {
+            response = await fetch('http://localhost:8000/api/technical_details', {
+              method: 'POST',
+              body: formData,
+            });
+          } else {
+            throw err;
+          }
         }
         
         if (!response.ok) throw new Error("API Request Failed with status: " + response.status);

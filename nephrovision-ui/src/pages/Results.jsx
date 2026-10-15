@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Download, Printer, ArrowLeft, CheckCircle, AlertTriangle, FileText, Sparkles, Bot, Send, Brain, Stethoscope, RefreshCw, MessageSquare, ShieldCheck, ChevronRight, User } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import { API_BASE } from '../apiConfig';
 
 // Clean raw markdown headers (### 1. Title etc.) for sleek presentation
 const cleanSectionText = (text) => {
@@ -50,8 +51,8 @@ const Results = () => {
   const filename = state.filename || 'Patient_CT_0042.dcm';
   
   // Resolve reliable image URL: state.imageUrl, or fallback to backend uploads endpoint
-  const rawImageUrl = state.imageUrl || (filename ? `http://localhost:8000/api/images/${encodeURIComponent(filename)}` : '');
-  const imageUrl = rawImageUrl.startsWith('/api/') ? `http://localhost:8000${rawImageUrl}` : rawImageUrl;
+  const rawImageUrl = state.imageUrl || (filename ? `${API_BASE}/api/images/${encodeURIComponent(filename)}` : '');
+  const imageUrl = rawImageUrl.startsWith('/api/') ? `${API_BASE}${rawImageUrl}` : rawImageUrl;
 
   const patientName = state.patientName || '';
   const patientAge = state.patientAge || '';
@@ -93,7 +94,7 @@ const Results = () => {
     setIsGenerating(true);
     setLlmError(null);
     try {
-      const res = await fetch('http://localhost:8000/api/llm/generate_report', {
+      const res = await fetch(`${API_BASE}/api/llm/generate_report`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -130,7 +131,7 @@ const Results = () => {
     setIsChatLoading(true);
 
     try {
-      const res = await fetch('http://localhost:8000/api/llm/chat', {
+      const res = await fetch(`${API_BASE}/api/llm/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -219,7 +220,7 @@ const Results = () => {
                   src={imageUrl} 
                   alt="CT Scan" 
                   onError={(e) => {
-                    const backendFallback = filename ? `http://localhost:8000/api/images/${encodeURIComponent(filename)}` : '';
+                    const backendFallback = filename ? `${API_BASE}/api/images/${encodeURIComponent(filename)}` : '';
                     if (backendFallback && e.target.src !== backendFallback) {
                       e.target.src = backendFallback;
                     }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Activity, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import { API_BASE } from '../apiConfig';
 import './Dashboard.css';
 
 const Dashboard = () => {
@@ -27,14 +28,16 @@ const Dashboard = () => {
     // 2. Delete from backend records (with proper URL encoding and dual-host fallback)
     const safeFilename = encodeURIComponent(filename || '');
     try {
-      await fetch(`http://localhost:8000/api/analyze/${safeFilename}`, {
+      await fetch(`${API_BASE}/api/analyze/${safeFilename}`, {
         method: 'DELETE',
       });
     } catch {
       try {
-        await fetch(`http://127.0.0.1:8000/api/analyze/${safeFilename}`, {
-          method: 'DELETE',
-        });
+        if (API_BASE !== 'http://localhost:8000') {
+          await fetch(`http://localhost:8000/api/analyze/${safeFilename}`, {
+            method: 'DELETE',
+          });
+        }
       } catch (e) {
         console.error("Failed to delete from backend", e);
       }

@@ -1,4 +1,10 @@
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["YOLO_VERBOSE"] = "False"
 import io
 import random
 import asyncio
@@ -7,6 +13,10 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import torch
 torch.set_num_threads(1)
+try:
+    torch.set_num_interop_threads(1)
+except Exception:
+    pass
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 import matplotlib
@@ -22,6 +32,12 @@ import cv2
 cv2.setNumThreads(1)
 import numpy as np
 import base64
+
+try:
+    from ultralytics import settings as yolo_settings
+    yolo_settings.update({'sync': False, 'checks': False})
+except Exception:
+    pass
 
 # Base directories for robust absolute path resolution
 BASE_DIR = Path(__file__).resolve().parent
@@ -223,11 +239,10 @@ def detect_specialized_stone_boxes(image_pil: Image.Image):
         return []
 
     iw, ih = image_pil.size
-    # 1. Direct prediction at specialized thresholds
-    for conf in [0.05, 0.02, 0.008]:
-        res = seg_model.predict(source=image_pil, imgsz=640, conf=conf, classes=[1], verbose=False)[0]
-        if res.boxes is not None and len(res.boxes) > 0:
-            return [(b.xyxy[0].tolist(), float(b.conf[0].item())) for b in res.boxes]
+    # 1. Direct prediction at specialized threshold
+    res = seg_model.predict(source=image_pil, imgsz=640, conf=0.01, classes=[1], verbose=False)[0]
+    if res.boxes is not None and len(res.boxes) > 0:
+        return [(b.xyxy[0].tolist(), float(b.conf[0].item())) for b in sorted(res.boxes, key=lambda x: float(x.conf[0].item()), reverse=True)]
 
     # 2. If no stone detected directly (e.g. full console capture with wide black margins/headers),
     # isolate the bright abdominal scan area and run detection within anatomical context
@@ -242,14 +257,13 @@ def detect_specialized_stone_boxes(image_pil: Image.Image):
                 body_c = max(large_cnts, key=cv2.contourArea)
                 bx, by, bw, bh = cv2.boundingRect(body_c)
                 crop_pil = image_pil.crop((bx, by, bx + bw, by + bh))
-                for conf in [0.05, 0.02, 0.008]:
-                    res_crop = seg_model.predict(source=crop_pil, imgsz=640, conf=conf, classes=[1], verbose=False)[0]
-                    if res_crop.boxes is not None and len(res_crop.boxes) > 0:
-                        mapped = []
-                        for b in res_crop.boxes:
-                            cx1, cy1, cx2, cy2 = b.xyxy[0].tolist()
-                            mapped.append(([cx1 + bx, cy1 + by, cx2 + bx, cy2 + by], float(b.conf[0].item())))
-                        return mapped
+                res_crop = seg_model.predict(source=crop_pil, imgsz=640, conf=0.01, classes=[1], verbose=False)[0]
+                if res_crop.boxes is not None and len(res_crop.boxes) > 0:
+                    mapped = []
+                    for b in sorted(res_crop.boxes, key=lambda x: float(x.conf[0].item()), reverse=True):
+                        cx1, cy1, cx2, cy2 = b.xyxy[0].tolist()
+                        mapped.append(([cx1 + bx, cy1 + by, cx2 + bx, cy2 + by], float(b.conf[0].item())))
+                    return mapped
     except Exception as e:
         print("Stone body ROI detection error:", e)
 
@@ -269,7 +283,7 @@ def read_root():
     return {"message": "NephroVision Backend is running"}
 
 @app.post("/api/analyze", response_model=AnalysisResponse)
-async def analyze_image(
+def analyze_image(
     file: UploadFile = File(...),
     doctor_prescription: Optional[str] = Form(""),
     patient_name: Optional[str] = Form(""),
@@ -278,7 +292,7 @@ async def analyze_image(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
     
-    contents = await file.read()
+    contents = file.file.read()
     try:
         save_path = UPLOADS_DIR / file.filename
         with open(save_path, "wb") as f_out:
@@ -308,7 +322,8 @@ async def analyze_image(
             print(f"PCSA Inference error: {e}")
     else:
         # MOCK INFERENCE FALLBACK
-        await asyncio.sleep(2.0)
+        import time
+        time.sleep(1.0)
         filename_lower = file.filename.lower()
         if "tumor" in filename_lower or "abnormal" in filename_lower or "tumer" in filename_lower or "tumar" in filename_lower:
             classification = "Tumor"
@@ -368,8 +383,8 @@ async def analyze_image(
                         ))
                 # If no stone detected by model, do not invent fake masks or boxes
             else:
-                # Existing Cyst / Tumor / General handling (Preserved completely unchanged)
-                results = seg_model.predict(source=image, imgsz=640, conf=0.05, verbose=False)
+                # Existing Cyst / Tumor / General handling (Native 640px inference)
+                results = seg_model.predict(source=image, imgsz=640, conf=0.02, verbose=False)
                 result = results[0]
                 
                 if result.boxes is not None and len(result.boxes) > 0:
@@ -391,25 +406,6 @@ async def analyze_image(
                             width=w_percent,
                             height=h_percent
                         ))
-                
-                # If no pathology box detected, retry with safe high-res (max 1024) and lower threshold
-                has_pathology = any(b.class_name.lower() in ('tumor', 'cyst') for b in bounding_boxes)
-                if not has_pathology:
-                    safe_sz = min(1024, max(640, max(img_width, img_height)))
-                    results_hires = seg_model.predict(source=image, imgsz=safe_sz, conf=0.01, verbose=False)
-                    if results_hires[0].boxes is not None and len(results_hires[0].boxes) > 0:
-                        for box in results_hires[0].boxes:
-                            cls_id = int(box.cls[0].item())
-                            raw_cls_name = results_hires[0].names.get(cls_id, "Unknown")
-                            class_name = raw_cls_name.capitalize()
-                            x_center, y_center, w, h = box.xywh[0].tolist()
-                            bounding_boxes.append(BoundingBox(
-                                class_name=class_name,
-                                x=(x_center - w / 2) / img_width * 100,
-                                y=(y_center - h / 2) / img_height * 100,
-                                width=(w / img_width) * 100,
-                                height=(h / img_height) * 100
-                            ))
             
             # Prioritize pathology boxes (Stone, Tumor, Cyst)
             bounding_boxes.sort(key=lambda b: (0 if b.class_name.lower() in ('stone', 'tumor', 'cyst') else 1))
@@ -648,8 +644,8 @@ class PreciseGradCAM:
             pass
 
 @app.post("/api/technical_details")
-async def get_technical_details(file: UploadFile = File(...)):
-    contents = await file.read()
+def get_technical_details(file: UploadFile = File(...)):
+    contents = file.file.read()
     image_pil = Image.open(io.BytesIO(contents)).convert('RGB')
     image_cv2 = cv2.cvtColor(image_rgb := np.array(image_pil), cv2.COLOR_RGB2BGR)
 
@@ -762,13 +758,9 @@ async def get_technical_details(file: UploadFile = File(...)):
                 seg_model, _ = get_specialized_seg_model(pred_class)
                 if seg_model is not None:
                     image_pil_hires = Image.fromarray(image_rgb_hires)
-                    safe_yolo_sz = min(1024, max(640, max(image_rgb_hires.shape[:2])))
-                    yolo_preds = seg_model.predict(source=image_pil_hires, imgsz=safe_yolo_sz, conf=0.05, verbose=False)
-                    yolo_res = yolo_preds[0]
-                    if yolo_res.boxes is None or len(yolo_res.boxes) == 0:
-                        yolo_preds = seg_model.predict(source=image_pil_hires, imgsz=safe_yolo_sz, conf=0.01, verbose=False)
-                        yolo_res = yolo_preds[0]
-                    yolo_seg_result = yolo_res
+                    yolo_preds = seg_model.predict(source=image_pil_hires, imgsz=640, conf=0.02, verbose=False)
+                    yolo_seg_result = yolo_preds[0]
+                    yolo_res = yolo_seg_result
 
                     if yolo_res.boxes is not None and len(yolo_res.boxes) > 0:
                         for idx, b in enumerate(yolo_res.boxes):
@@ -924,12 +916,8 @@ async def get_technical_details(file: UploadFile = File(...)):
                 if yolo_seg_result is not None:
                     result = yolo_seg_result
                 else:
-                    safe_yolo_sz = min(1024, max(640, max(image_rgb_hires.shape[:2])))
-                    yolo_res = seg_model.predict(source=image_pil_hires, imgsz=safe_yolo_sz, conf=0.05, verbose=False)
+                    yolo_res = seg_model.predict(source=image_pil_hires, imgsz=640, conf=0.02, verbose=False)
                     result = yolo_res[0]
-                    if result.boxes is None or len(result.boxes) == 0:
-                        yolo_res = seg_model.predict(source=image_pil_hires, imgsz=safe_yolo_sz, conf=0.01, verbose=False)
-                        result = yolo_res[0]
 
                 if result.boxes is not None and len(result.boxes) > 0:
                     res_plotted_bgr = result.plot(labels=True, boxes=True, masks=True, line_width=2)

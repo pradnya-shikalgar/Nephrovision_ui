@@ -49,17 +49,21 @@ const Upload = () => {
 
   const handleAnalyze = () => {
     if (selectedFile) {
-      const imageUrl = URL.createObjectURL(selectedFile);
-      navigate('/analyze', { 
-        state: { 
-          file: selectedFile, 
-          filename: selectedFile.name, 
-          imageUrl, 
-          patientName, 
-          patientAge,
-          doctorPrescription 
-        } 
-      });
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        navigate('/analyze', { 
+          state: { 
+            file: selectedFile, 
+            filename: selectedFile.name, 
+            imageUrl: dataUrl, 
+            patientName, 
+            patientAge,
+            doctorPrescription 
+          } 
+        });
+      };
+      reader.readAsDataURL(selectedFile);
     }
   };
 

@@ -662,22 +662,27 @@ async def get_technical_details(file: UploadFile = File(...)):
     # ── Shared: run model once with hooks to capture internal tensors ──────
     input_tensor = transform(image_pil).unsqueeze(0).to(device)
     pred_idx = 1
+    pred_class = "Normal"
     _hook_data = {}
 
-    def _hook_s3(module, inp, out): _hook_data['s3'] = out.detach()
-    def _hook_s5(module, inp, out): _hook_data['s5'] = out.detach()
+    if model is not None:
+        try:
+            def _hook_s3(module, inp, out): _hook_data['s3'] = out.detach()
+            def _hook_s5(module, inp, out): _hook_data['s5'] = out.detach()
 
-    h1 = model.stage4.pcsa.conv_spatial_3.register_forward_hook(_hook_s3)
-    h2 = model.stage4.pcsa.conv_spatial_5.register_forward_hook(_hook_s5)
+            h1 = model.stage4.pcsa.conv_spatial_3.register_forward_hook(_hook_s3)
+            h2 = model.stage4.pcsa.conv_spatial_5.register_forward_hook(_hook_s5)
 
-    with torch.no_grad():
-        raw_output = model(input_tensor)
-        probs = torch.softmax(raw_output, dim=1)
-        _, predicted = torch.max(probs, 1)
-    pred_idx = predicted.item()
-    pred_class = class_names[pred_idx]
+            with torch.no_grad():
+                raw_output = model(input_tensor)
+                probs = torch.softmax(raw_output, dim=1)
+                _, predicted = torch.max(probs, 1)
+            pred_idx = predicted.item()
+            pred_class = class_names[pred_idx]
 
-    h1.remove(); h2.remove()
+            h1.remove(); h2.remove()
+        except Exception as e:
+            print("PCSA forward hook error:", e)
 
     # ── 2. Precise Grad-CAM (Targeted layer + cubic sharpening) ──
     gradcam_b64 = ""

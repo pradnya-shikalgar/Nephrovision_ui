@@ -148,19 +148,31 @@ const Analyze = () => {
       if (patientAge) formData.append('patient_age', patientAge);
 
       let response;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
       try {
         response = await fetch(`${API_BASE}/api/analyze`, {
           method: 'POST',
-          body: formData
+          body: formData,
+          signal: controller.signal
         });
-      } catch (err) {
+        clearTimeout(timeoutId);
+        if (!response.ok && API_BASE !== 'http://localhost:8000') {
+          response = await fetch('http://localhost:8000/api/analyze', {
+            method: 'POST',
+            body: formData
+          });
+        }
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
         if (API_BASE !== 'http://localhost:8000') {
           response = await fetch('http://localhost:8000/api/analyze', {
             method: 'POST',
             body: formData
           });
         } else {
-          throw err;
+          throw fetchErr;
         }
       }
 

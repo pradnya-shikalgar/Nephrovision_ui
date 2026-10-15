@@ -1,8 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Download, Printer, ArrowLeft, CheckCircle, AlertTriangle, FileText, Sparkles, Bot, Send, Brain, Stethoscope, RefreshCw, MessageSquare, ShieldCheck, ChevronRight } from 'lucide-react';
+import { Download, Printer, ArrowLeft, CheckCircle, AlertTriangle, FileText, Sparkles, Bot, Send, Brain, Stethoscope, RefreshCw, MessageSquare, ShieldCheck, ChevronRight, User } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+
+// Clean raw markdown headers (### 1. Title etc.) for sleek presentation
+const cleanSectionText = (text) => {
+  if (!text) return '';
+  return text
+    .replace(/^###\s*\d*\.?\s*[^\n]*\n?/gm, '')
+    .replace(/^\*\*Protocol Recommendation:\*\*/gm, 'Protocol Recommendation:')
+    .trim();
+};
+
+// Render message or tab content with clean text without raw ** asterisks
+const renderFormattedMessage = (content) => {
+  if (!content) return null;
+  const lines = content.split('\n');
+  return lines.map((line, lIdx) => {
+    // Strip raw asterisks from each line
+    const cleanLine = line.replace(/\*\*/g, '');
+    return (
+      <React.Fragment key={lIdx}>
+        {cleanLine}
+        {lIdx < lines.length - 1 && <br />}
+      </React.Fragment>
+    );
+  });
+};
 
 const Results = () => {
   const navigate = useNavigate();
@@ -23,7 +48,11 @@ const Results = () => {
   state = state || {};
 
   const filename = state.filename || 'Patient_CT_0042.dcm';
-  const imageUrl = state.imageUrl || '';
+  
+  // Resolve reliable image URL: state.imageUrl, or fallback to backend uploads endpoint
+  const rawImageUrl = state.imageUrl || (filename ? `http://localhost:8000/api/images/${encodeURIComponent(filename)}` : '');
+  const imageUrl = rawImageUrl.startsWith('/api/') ? `http://localhost:8000${rawImageUrl}` : rawImageUrl;
+
   const patientName = state.patientName || '';
   const patientAge = state.patientAge || '';
   const doctorPrescription = state.doctorPrescription || '';
@@ -33,6 +62,7 @@ const Results = () => {
   const medication = state.medication || '';
   const isTumor = state.isTumor || false;
   const isCyst = state.isCyst || false;
+  const isStone = state.isStone || state.classification?.toLowerCase().includes("stone") || false;
   const classification = state.classification || "Normal Kidney Structure Detected";
   const confidence = state.confidence || 98.7;
   const leftVolume = state.leftVolume || 142;
@@ -48,11 +78,16 @@ const Results = () => {
   const [chatMessages, setChatMessages] = useState([
     {
       role: 'model',
-      content: `Hello! I am your Multimodal Clinical Copilot powered by Google Gemini. I have ingested the PCSA vision findings (${classification}, ${confidence}% confidence) and patient history. Click "Generate Gemini Clinical Report" above or ask me any diagnostic, surgical, or medication question.`
+      content: `Hello! I'm your NephroVision Copilot. Here's a quick look at this scan:\n\n• **Finding:** ${classification} (${confidence}% confidence)\n• **Left Kidney:** ${leftVolume} cm³ | **Right Kidney:** ${rightVolume} cm³\n• **How I can help:** Ask me about the location, size, boundaries, or a plain-English patient explanation!`
     }
   ]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, isChatLoading]);
 
   const handleGenerateLLMReport = async () => {
     setIsGenerating(true);
@@ -110,7 +145,15 @@ const Results = () => {
             right_volume: rightVolume,
             doctor_prescription: doctorPrescription,
             clinical_notes: doctorPrescription || `${history}. ${signSymptom}`,
-            llm_report_synthesis: llmReport?.report?.executive_synthesis || ''
+            llm_report_synthesis: llmReport?.report?.executive_synthesis || '',
+            bounding_boxes: boundingBoxes,
+            distance: distance,
+            sign_symptom: signSymptom,
+            history: history,
+            is_cyst: isCyst,
+            is_tumor: isTumor,
+            is_stone: isStone,
+            filename: filename
           }
         })
       });
@@ -163,94 +206,134 @@ const Results = () => {
             overflow: 'hidden',
             position: 'relative'
           }}>
-            {imageUrl ? (
-              <img 
-                src={imageUrl} 
-                alt="CT Scan" 
-                style={{ 
-                  width: '100%', 
-                  height: '100%', 
-                  objectFit: 'contain', 
-                  imageRendering: '-webkit-optimize-contrast',
-                  filter: 'contrast(1.06) brightness(1.02)'
-                }} 
-              />
-            ) : (
-              <p className="text-muted">No Image Available</p>
-            )}
-            
-            {/* Real YOLO Bounding Boxes from Backend */}
-            {boundingBoxes.length > 0 ? (
-              boundingBoxes.map((box, index) => {
-                const isTumorBox = box.class_name.toLowerCase() === 'tumor';
-                const isCystBox = box.class_name.toLowerCase() === 'cyst';
-                const boxColor = isTumorBox ? 'var(--color-danger)' : (isCystBox ? 'var(--color-warning)' : 'var(--color-primary)');
-                const bgColor = isTumorBox ? 'rgba(239, 68, 68, 0.2)' : (isCystBox ? 'rgba(245, 158, 11, 0.2)' : 'rgba(14, 165, 233, 0.2)');
-                
-                return (
-                  <div 
-                    key={index}
-                    style={{ 
-                      position: 'absolute', 
-                      top: `${box.y}%`, 
-                      left: `${box.x}%`, 
-                      width: `${box.width}%`, 
-                      height: `${box.height}%`, 
-                      border: `3px solid ${boxColor}`, 
-                      backgroundColor: bgColor,
-                      borderRadius: '8px'
-                    }}
-                  >
-                     <span style={{ 
-                       position: 'absolute', 
-                       top: '-25px', 
-                       left: '-3px', 
-                       background: boxColor, 
-                       color: 'white', 
-                       padding: '2px 8px', 
-                       fontSize: '12px', 
-                       borderRadius: '4px',
-                       fontWeight: 'bold',
-                       textTransform: 'capitalize',
-                       whiteSpace: 'nowrap'
-                     }}>
-                       {box.class_name}
-                     </span>
-                  </div>
-                );
-              })
-            ) : (
-              /* Fallback Simulated Overlay Bounding Box (Only if YOLO didn't return boxes but we have classification) */
-              (isTumor || isCyst) && (
-                <div 
-                  className="animate-pulse" 
-                  style={{ 
-                    position: 'absolute', 
-                    top: '30%', 
-                    left: '45%', 
-                    width: '30%', 
-                    height: '40%', 
-                    border: `3px solid ${isTumor ? 'var(--color-danger)' : 'var(--color-warning)'}`, 
-                    backgroundColor: isTumor ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
-                    borderRadius: '10px'
+            <div style={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              maxWidth: '100%',
+              maxHeight: '100%'
+            }}>
+              {imageUrl ? (
+                <img 
+                  src={imageUrl} 
+                  alt="CT Scan" 
+                  onError={(e) => {
+                    const backendFallback = filename ? `http://localhost:8000/api/images/${encodeURIComponent(filename)}` : '';
+                    if (backendFallback && e.target.src !== backendFallback) {
+                      e.target.src = backendFallback;
+                    }
                   }}
-                >
-                   <span style={{ 
-                     position: 'absolute', 
-                     top: '-25px', 
-                     left: '0', 
-                     background: isTumor ? 'var(--color-danger)' : 'var(--color-warning)', 
-                     color: 'white', 
-                     padding: '2px 6px', 
-                     fontSize: '12px', 
-                     borderRadius: '4px',
-                     fontWeight: 'bold'
-                   }}>
-                     {isTumor ? 'Tumor' : 'Cyst'}
-                   </span>
-                </div>
-              )
-            )}
+                  style={{ 
+                    maxWidth: '100%', 
+                    maxHeight: '100%', 
+                    width: 'auto',
+                    height: 'auto',
+                    display: 'block',
+                    objectFit: 'contain', 
+                    imageRendering: '-webkit-optimize-contrast',
+                    filter: 'contrast(1.06) brightness(1.02)'
+                  }} 
+                />
+              ) : (
+                <p className="text-muted">No Image Available</p>
+              )}
+              
+              {/* Real YOLO Bounding Boxes from Backend */}
+              {boundingBoxes.length > 0 ? (
+                boundingBoxes.map((box, index) => {
+                  const isTumorBox = box.class_name.toLowerCase() === 'tumor';
+                  const isCystBox = box.class_name.toLowerCase() === 'cyst';
+                  const isStoneBox = box.class_name.toLowerCase() === 'stone';
+                  
+                  if (isStoneBox) {
+                    // Dynamic stone boundary sizing:
+                    // 1. Calculate center coordinates from detection output
+                    const cx = box.x + box.width / 2;
+                    const cy = box.y + box.height / 2;
+                    // 2. Dynamic boundary dimension with margin so stone inside is fully framed and visible
+                    const boundW = Math.max(box.width * 1.6, 5.5);
+                    const boundH = Math.max(box.height * 1.6, 5.5);
+                    const boundLeft = Math.max(0, cx - boundW / 2);
+                    const boundTop = Math.max(0, cy - boundH / 2);
+
+                    const stoneColor = '#facc15';
+                    const stoneBg = 'rgba(250, 204, 21, 0.20)';
+
+                    return (
+                      <div
+                        key={index}
+                        style={{
+                          position: 'absolute',
+                          top: `${boundTop}%`,
+                          left: `${boundLeft}%`,
+                          width: `${boundW}%`,
+                          height: `${boundH}%`,
+                          border: `2.5px solid ${stoneColor}`,
+                          boxShadow: '0 0 0 1.5px rgba(0, 0, 0, 0.9), 0 0 12px rgba(250, 204, 21, 0.65)',
+                          backgroundColor: stoneBg,
+                          borderRadius: '8px',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <span style={{
+                          position: 'absolute',
+                          top: '-26px',
+                          left: '-2px',
+                          background: stoneColor,
+                          color: '#0f172a',
+                          padding: '2px 8px',
+                          fontSize: '11px',
+                          borderRadius: '4px',
+                          fontWeight: 700,
+                          textTransform: 'capitalize',
+                          whiteSpace: 'nowrap',
+                          boxShadow: '0 2px 5px rgba(0, 0, 0, 0.6)',
+                          letterSpacing: '0.02em'
+                        }}>
+                          {box.class_name}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  const boxColor = isTumorBox ? 'var(--color-danger)' : (isCystBox ? 'var(--color-warning)' : 'var(--color-primary)');
+                  const bgColor = isTumorBox ? 'rgba(239, 68, 68, 0.2)' : (isCystBox ? 'rgba(245, 158, 11, 0.2)' : 'rgba(14, 165, 233, 0.2)');
+                  
+                  return (
+                    <div 
+                      key={index}
+                      style={{ 
+                        position: 'absolute', 
+                        top: `${box.y}%`, 
+                        left: `${box.x}%`, 
+                        width: `${box.width}%`, 
+                        height: `${box.height}%`, 
+                        border: `3px solid ${boxColor}`, 
+                        backgroundColor: bgColor,
+                        borderRadius: '8px'
+                      }}
+                    >
+                       <span style={{ 
+                         position: 'absolute', 
+                         top: '-25px', 
+                         left: '-3px', 
+                         background: boxColor, 
+                         color: 'white', 
+                         padding: '2px 8px', 
+                         fontSize: '12px', 
+                         borderRadius: '4px',
+                         fontWeight: 'bold',
+                         textTransform: 'capitalize',
+                         whiteSpace: 'nowrap'
+                       }}>
+                         {box.class_name}
+                       </span>
+                    </div>
+                  );
+                })
+              ) : null}
+            </div>
           </div>
         </Card>
 
@@ -267,6 +350,14 @@ const Results = () => {
             ) : isCyst ? (
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem' }}>
                 <AlertTriangle size={24} style={{ color: 'var(--color-warning)', marginTop: '0.25rem' }} />
+                <div>
+                  <h4 style={{ margin: '0 0 0.5rem 0' }}>{classification}</h4>
+                  <p className="text-muted" style={{ margin: 0 }}>{message}</p>
+                </div>
+              </div>
+            ) : isStone ? (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem' }}>
+                <AlertTriangle size={24} style={{ color: '#eab308', marginTop: '0.25rem' }} />
                 <div>
                   <h4 style={{ margin: '0 0 0.5rem 0' }}>{classification}</h4>
                   <p className="text-muted" style={{ margin: 0 }}>{message}</p>
@@ -291,7 +382,7 @@ const Results = () => {
                   <strong>{confidence}%</strong>
                 </div>
                 <div style={{ width: '100%', backgroundColor: 'var(--color-border)', borderRadius: 'var(--radius-full)', height: '6px' }}>
-                  <div style={{ height: '100%', backgroundColor: isTumor ? 'var(--color-danger)' : isCyst ? 'var(--color-warning)' : 'var(--color-success)', width: `${confidence}%`, borderRadius: 'var(--radius-full)' }} />
+                  <div style={{ height: '100%', backgroundColor: isTumor ? 'var(--color-danger)' : isCyst ? 'var(--color-warning)' : isStone ? '#eab308' : 'var(--color-success)', width: `${confidence}%`, borderRadius: 'var(--radius-full)' }} />
                 </div>
               </div>
               
@@ -430,22 +521,27 @@ const Results = () => {
 
               {/* Tab Content Display */}
               <div style={{ 
-                backgroundColor: 'var(--color-background)', 
+                backgroundColor: 'var(--color-surface)', 
                 border: '1px solid var(--color-border)', 
                 borderRadius: 'var(--radius-md)', 
                 padding: '1.5rem',
                 minHeight: '220px',
                 lineHeight: '1.7',
-                fontSize: '0.925rem'
+                fontSize: '0.925rem',
+                boxShadow: 'var(--shadow-sm)'
               }}>
                 {activeReportTab === 'executive' && (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                      <h4 style={{ margin: 0, color: 'var(--color-text)' }}>Executive Diagnostic Synthesis</h4>
-                      <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>Verified by {llmReport?.model || 'Gemini'}</span>
+                      <h4 style={{ margin: 0, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Brain size={18} style={{ color: '#0ea5e9' }} /> Executive Diagnostic Synthesis
+                      </h4>
+                      <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600, backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '12px' }}>
+                        Verified by {llmReport?.model || 'Gemini'}
+                      </span>
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', color: 'var(--color-text)' }}>
-                      {llmReport?.report?.executive_synthesis || 'No executive synthesis generated.'}
+                    <div style={{ color: 'var(--color-text)', lineHeight: '1.7' }}>
+                      {renderFormattedMessage(cleanSectionText(llmReport?.report?.executive_synthesis)) || 'No executive synthesis generated.'}
                     </div>
                   </div>
                 )}
@@ -453,11 +549,15 @@ const Results = () => {
                 {activeReportTab === 'surgical' && (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                      <h4 style={{ margin: 0, color: 'var(--color-text)' }}>Pre-Operative Surgical Risk Stratification & Nephrometry</h4>
-                      <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600 }}>R.E.N.A.L. & PADUA Assessment</span>
+                      <h4 style={{ margin: 0, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Stethoscope size={18} style={{ color: '#f59e0b' }} /> Pre-Operative Surgical Risk Stratification & Nephrometry
+                      </h4>
+                      <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: '2px 8px', borderRadius: '12px' }}>
+                        R.E.N.A.L. & PADUA Assessment
+                      </span>
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', color: 'var(--color-text)' }}>
-                      {llmReport?.report?.surgical_risk_stratification || 'No surgical risk assessment generated.'}
+                    <div style={{ color: 'var(--color-text)', lineHeight: '1.7' }}>
+                      {renderFormattedMessage(cleanSectionText(llmReport?.report?.surgical_risk_stratification)) || 'No surgical risk assessment generated.'}
                     </div>
                   </div>
                 )}
@@ -465,11 +565,15 @@ const Results = () => {
                 {activeReportTab === 'nutrition' && (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                      <h4 style={{ margin: 0, color: 'var(--color-text)' }}>Comorbidity-Aware Renal Nutrition Protocol</h4>
-                      <span style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600 }}>Personalized Macro/Micro Guide</span>
+                      <h4 style={{ margin: 0, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <ShieldCheck size={18} style={{ color: '#3b82f6' }} /> Comorbidity-Aware Renal Nutrition Protocol
+                      </h4>
+                      <span style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: '2px 8px', borderRadius: '12px' }}>
+                        Personalized Macro/Micro Guide
+                      </span>
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', color: 'var(--color-text)' }}>
-                      {llmReport?.report?.renal_nutrition_plan || 'No renal nutrition plan generated.'}
+                    <div style={{ color: 'var(--color-text)', lineHeight: '1.7' }}>
+                      {renderFormattedMessage(cleanSectionText(llmReport?.report?.renal_nutrition_plan)) || 'No renal nutrition plan generated.'}
                     </div>
                   </div>
                 )}
@@ -477,11 +581,15 @@ const Results = () => {
                 {activeReportTab === 'patient' && (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                      <h4 style={{ margin: 0, color: 'var(--color-text)' }}>Patient-Friendly Summary (Plain Language)</h4>
-                      <span style={{ fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600 }}>Clear, Empathetic Guidance</span>
+                      <h4 style={{ margin: 0, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Sparkles size={18} style={{ color: '#8b5cf6' }} /> Patient-Friendly Summary (Plain Language)
+                      </h4>
+                      <span style={{ fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600, backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '2px 8px', borderRadius: '12px' }}>
+                        Clear, Empathetic Guidance
+                      </span>
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', color: 'var(--color-text)' }}>
-                      {llmReport?.report?.patient_friendly_summary || 'No patient summary generated.'}
+                    <div style={{ color: 'var(--color-text)', lineHeight: '1.7' }}>
+                      {renderFormattedMessage(cleanSectionText(llmReport?.report?.patient_friendly_summary)) || 'No patient summary generated.'}
                     </div>
                   </div>
                 )}
@@ -492,8 +600,8 @@ const Results = () => {
           {/* Interactive Clinical Consultation Chat */}
           <div style={{ marginTop: '2rem', borderTop: '1px solid var(--color-border)', paddingTop: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <MessageSquare size={18} style={{ color: '#60a5fa' }} />
-              <h4 style={{ margin: 0 }}>Interactive Clinical Consultation (Gemini Chat)</h4>
+              <MessageSquare size={18} style={{ color: 'var(--color-primary)' }} />
+              <h4 style={{ margin: 0, color: 'var(--color-text)' }}>Ask Clinical Copilot</h4>
             </div>
 
             {/* Quick Prompts */}
@@ -510,30 +618,34 @@ const Results = () => {
                   disabled={isChatLoading}
                   style={{
                     fontSize: '0.75rem',
-                    padding: '0.35rem 0.75rem',
+                    padding: '0.4rem 0.85rem',
                     borderRadius: '20px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                    backgroundColor: 'var(--color-surface)',
                     border: '1px solid var(--color-border)',
-                    color: 'var(--color-text-muted)',
+                    color: 'var(--color-text)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.25rem'
+                    gap: '0.35rem',
+                    boxShadow: 'var(--shadow-sm)',
+                    transition: 'all 0.15s ease'
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; }}
                 >
-                  <ChevronRight size={12} /> {prompt}
+                  <ChevronRight size={12} style={{ color: 'var(--color-primary)' }} /> {prompt}
                 </button>
               ))}
             </div>
 
             {/* Messages Window */}
             <div style={{ 
-              maxHeight: '260px', 
+              maxHeight: '320px', 
               overflowY: 'auto', 
               display: 'flex', 
               flexDirection: 'column', 
-              gap: '0.75rem',
-              padding: '1rem',
+              gap: '0.85rem',
+              padding: '1.25rem',
               backgroundColor: 'var(--color-background)',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border)',
@@ -551,31 +663,40 @@ const Results = () => {
                 >
                   <div style={{
                     fontSize: '0.75rem',
-                    color: 'var(--color-text-muted)',
-                    marginBottom: '0.2rem',
-                    textAlign: msg.role === 'user' ? 'right' : 'left'
+                    fontWeight: 600,
+                    color: msg.role === 'user' ? 'var(--color-primary)' : '#0ea5e9',
+                    marginBottom: '0.25rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start'
                   }}>
-                    {msg.role === 'user' ? 'You (Physician)' : 'Gemini Copilot'}
+                    {msg.role === 'user' ? (
+                      <><User size={12} /> You (Physician)</>
+                    ) : (
+                      <><Bot size={13} /> Clinical Copilot</>
+                    )}
                   </div>
                   <div style={{
-                    padding: '0.75rem 1rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: msg.role === 'user' ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.06)',
-                    color: '#ffffff',
+                    padding: '0.85rem 1.15rem',
+                    borderRadius: msg.role === 'user' ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                    backgroundColor: msg.role === 'user' ? '#0284c7' : '#f8fafc',
+                    color: msg.role === 'user' ? '#ffffff' : '#0f172a',
                     fontSize: '0.875rem',
-                    lineHeight: '1.5',
-                    whiteSpace: 'pre-wrap',
-                    border: msg.role === 'user' ? 'none' : '1px solid var(--color-border)'
+                    lineHeight: '1.6',
+                    border: msg.role === 'user' ? 'none' : '1px solid #cbd5e1',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
                   }}>
-                    {msg.content}
+                    {renderFormattedMessage(msg.content)}
                   </div>
                 </div>
               ))}
               {isChatLoading && (
-                <div style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
-                  <RefreshCw size={14} className="animate-spin" /> Gemini is analyzing clinical context...
+                <div style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#0ea5e9', fontSize: '0.85rem', fontWeight: 500, padding: '0.5rem' }}>
+                  <RefreshCw size={14} className="animate-spin" /> Gemini Copilot is formulating evidence-based guidance...
                 </div>
               )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Input Form */}
@@ -593,11 +714,12 @@ const Results = () => {
                   flex: 1,
                   padding: '0.75rem 1rem',
                   borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-background)',
+                  backgroundColor: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',
                   color: 'var(--color-text)',
                   outline: 'none',
-                  fontSize: '0.9rem'
+                  fontSize: '0.9rem',
+                  boxShadow: 'var(--shadow-sm)'
                 }}
               />
               <Button type="submit" disabled={isChatLoading || !chatInput.trim()}>

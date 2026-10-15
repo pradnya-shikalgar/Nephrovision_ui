@@ -19,9 +19,12 @@ const Analyze = () => {
   const completeAnalysis = useCallback((data) => {
     setProgress(100);
     setTimeout(() => {
+      const backendImgUrl = filename ? `http://localhost:8000/api/images/${encodeURIComponent(filename)}` : '';
+      const resolvedImageUrl = imageUrl || backendImgUrl;
+
       const analysisResult = { 
         filename, 
-        imageUrl,
+        imageUrl: resolvedImageUrl,
         patientName,
         patientAge,
         doctorPrescription: data.doctor_prescription || doctorPrescription || '',
@@ -31,6 +34,7 @@ const Analyze = () => {
         medication: data.medication || 'None',
         isTumor: Boolean(data.is_tumor),
         isCyst: Boolean(data.is_cyst),
+        isStone: Boolean(data.is_stone),
         classification: data.classification || 'Normal Kidney Structure',
         confidence: data.confidence || 98.5,
         leftVolume: data.left_volume || 140,
@@ -40,11 +44,20 @@ const Analyze = () => {
         date: new Date().toLocaleString()
       };
 
-      const existingHistory = JSON.parse(localStorage.getItem('recentAnalyses') || '[]');
-      localStorage.setItem('recentAnalyses', JSON.stringify([analysisResult, ...existingHistory].slice(0, 10)));
+      try {
+        // Persist backend URL in history so images can always reload when reviewing past analyses
+        const historyEntry = { 
+          ...analysisResult, 
+          imageUrl: (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) ? imageUrl : backendImgUrl 
+        };
+        const existingHistory = JSON.parse(localStorage.getItem('recentAnalyses') || '[]');
+        localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...existingHistory].slice(0, 10)));
+      } catch (storageErr) {
+        console.warn('LocalStorage save skipped (quota limit):', storageErr);
+      }
 
       navigate('/results', { state: { ...analysisResult, file } });
-    }, 500);
+    }, 400);
   }, [filename, imageUrl, patientName, patientAge, doctorPrescription, navigate, file]);
 
   const runSimulatedInference = useCallback(() => {

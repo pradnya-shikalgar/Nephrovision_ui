@@ -19,19 +19,26 @@ const Dashboard = () => {
   };
 
   const deleteAnalysis = async (index, filename) => {
-    try {
-      // Call backend to delete (mock endpoint for now)
-      await fetch(`http://127.0.0.1:8000/api/analyze/${filename}`, {
-        method: 'DELETE',
-      });
-    } catch (e) {
-      console.error("Failed to delete from backend", e);
-    }
-    // Delete from frontend state and local storage
-    const updated = [...recentAnalyses];
-    updated.splice(index, 1);
+    // 1. Immediately delete from frontend state and localStorage for instant UI feedback
+    const updated = recentAnalyses.filter((_, i) => i !== index);
     setRecentAnalyses(updated);
     localStorage.setItem('recentAnalyses', JSON.stringify(updated));
+
+    // 2. Delete from backend records (with proper URL encoding and dual-host fallback)
+    const safeFilename = encodeURIComponent(filename || '');
+    try {
+      await fetch(`http://localhost:8000/api/analyze/${safeFilename}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      try {
+        await fetch(`http://127.0.0.1:8000/api/analyze/${safeFilename}`, {
+          method: 'DELETE',
+        });
+      } catch (e) {
+        console.error("Failed to delete from backend", e);
+      }
+    }
   };
 
   return (
@@ -111,7 +118,10 @@ const Dashboard = () => {
                       Complete
                     </button>
                     <button 
-                      onClick={() => deleteAnalysis(index, analysis.filename)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteAnalysis(index, analysis.filename);
+                      }}
                       style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--color-danger)', background: 'transparent', color: 'var(--color-danger)', cursor: 'pointer' }}
                     >
                       Delete

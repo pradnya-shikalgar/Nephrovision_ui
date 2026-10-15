@@ -145,20 +145,10 @@ const TechnicalDetails = () => {
     {
       id: 3,
       number: "3",
-      title: "3. PCSA Attention Map",
-      shortTitle: "PCSA Attention Map",
-      tag: "PCSA Spatial Attention",
-      description: "Real spatial attention weights extracted from the PCSA (Pyramid Channel & Spatial Attention) module of the KidneyNeXt model via forward hook. Shows where the model's spatial attention is focusing during inference.",
-      imageSrc: getImageSrc(images?.pcsa_attention, null),
-      badgeColor: "#06b6d4"
-    },
-    {
-      id: 4,
-      number: "4",
-      title: "4. Surgical Boundaries",
+      title: "3. Surgical Boundaries",
       shortTitle: "Surgical Boundaries",
       tag: "YOLOv8 Segmentation",
-      description: "Deep-learning predicted boundary contours and bounding boxes delineating organ margins, suspected lesions, and resection safety zones. Cyst = dark red, Tumor = red, Stone = yellow, Kidney = blue.",
+      description: "Deep-learning predicted boundary contours and bounding boxes delineating organ margins, suspected lesions, and resection safety zones.",
       imageSrc: getImageSrc(images?.surgical_boundaries, null),
       badgeColor: "#f59e0b"
     },
@@ -172,6 +162,7 @@ const TechnicalDetails = () => {
       imageSrc: getImageSrc(images?.impact_ratio, images?.impact_ratio_svg),
       badgeColor: "#10b981"
     }
+
   ];
 
   const currentSlide = slides[currentSlideIndex];

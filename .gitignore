@@ -13,3 +13,9 @@ venv/
 env/
 .env/
 *.log
+*.zip
+backend/uploads/
+backend/analyses_history.json
+*.png
+!nephrovision-ui/public/*.png
+!nephrovision-ui/src/assets/*.png

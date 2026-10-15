@@ -1,7 +1,10 @@
 // Centralized API Base URL configuration
-// Points to your live Render backend by default!
+// Automatically targets local FastAPI on localhost, and live Render backend on production!
 export const API_BASE = (
   import.meta.env.VITE_API_URL || 
   import.meta.env.BACKEND_API_URL || 
-  'https://nephrovision-ui.onrender.com'
+  (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:8000'
+    : 'https://nephrovision-ui.onrender.com')
 ).replace(/\/+$/, '');
+

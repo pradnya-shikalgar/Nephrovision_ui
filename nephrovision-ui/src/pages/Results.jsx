@@ -204,7 +204,7 @@ const Results = () => {
           <p className="text-muted">{filename} processed successfully.</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
-          <Button variant="secondary" onClick={() => navigate('/technical-details', { state: state })}>
+          <Button variant="secondary" onClick={() => navigate('/technical-details', { state: { ...state, imageUrl: imageUrl || state.imageUrl, filename: filename, file: state.file || file } })}>
             Technical Detail
           </Button>
           <Button variant="secondary" onClick={() => window.print()}>

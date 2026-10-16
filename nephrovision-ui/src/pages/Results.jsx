@@ -50,6 +50,14 @@ const Results = () => {
 
   const filename = state.filename || 'Patient_CT_0042.dcm';
   
+  const getPathologyFallback = (c, tumor, cyst, stone) => {
+    const text = (c || '').toLowerCase();
+    if (tumor || text.includes('tumor') || text.includes('tumer')) return '/sample_scans/Tumor.jpg';
+    if (cyst || text.includes('cyst')) return '/sample_scans/Cyst.jpg';
+    if (stone || text.includes('stone')) return '/sample_scans/stone.webp';
+    return '/sample_scans/Normal.jpg';
+  };
+
   // Resolve reliable image URL: state.imageUrl, or fallback to backend uploads endpoint
   const resolveInitialImageUrl = () => {
     let url = state.imageUrl || '';
@@ -57,7 +65,11 @@ const Results = () => {
       return url;
     }
     const baseName = filename ? filename.split('/').pop().split('\\').pop() : '';
-    const knownSamples = ['cyste 3.jpg', 'cyste 2.jpg', 'Cyst.jpg', '1.jpg', 'Normal.jpg', 'Tumor.jpg', 'stone.webp'];
+    const knownSamples = [
+      'cyste 3.jpg', 'cyste 2.jpg', 'Cyst.jpg', '1.jpg', 'Normal.jpg', 'Tumor.jpg', 
+      'stone.webp', 'TUMER 3.jpg', 'TUMER 4.jpg', 'stone 3.jpg', 'testing_c1.jpg', 
+      'testing_s3.jpg', 'testing_t1.jpg', 'Patient_CT_0042.dcm', 'Patient_CT_0042.jpg'
+    ];
     if (knownSamples.includes(baseName)) {
       return `/sample_scans/${encodeURIComponent(baseName)}`;
     }
@@ -71,7 +83,7 @@ const Results = () => {
     if (filename) {
       return `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
     }
-    return url;
+    return getPathologyFallback(state.classification, state.isTumor, state.isCyst, state.isStone);
   };
   const [imageUrl, setImageUrl] = useState(resolveInitialImageUrl);
 
@@ -246,13 +258,14 @@ const Results = () => {
                     const cleanName = filename ? filename.split('/').pop().split('\\').pop() : '';
                     const sampleFallback = cleanName ? `/sample_scans/${encodeURIComponent(cleanName)}` : '';
                     const backendFallback = cleanName ? `${API_BASE}/api/images/${encodeURIComponent(cleanName)}` : '';
+                    const pathFallback = getPathologyFallback(classification, isTumor, isCyst, isStone);
                     
                     if (sampleFallback && !e.target.src.includes('/sample_scans/')) {
                       e.target.src = sampleFallback;
-                    } else if (backendFallback && e.target.src !== backendFallback) {
+                    } else if (backendFallback && e.target.src !== backendFallback && !e.target.src.includes('/api/images/')) {
                       e.target.src = backendFallback;
-                    } else if (!e.target.src.includes('cyste%203.jpg') && !e.target.src.includes('Normal.jpg')) {
-                      e.target.src = '/sample_scans/cyste 3.jpg';
+                    } else if (!e.target.src.endsWith(pathFallback)) {
+                      e.target.src = pathFallback;
                     }
                   }}
                   style={{ 

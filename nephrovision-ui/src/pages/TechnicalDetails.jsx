@@ -61,6 +61,14 @@ const TechnicalDetails = () => {
     const fetchTechnicalDetails = async () => {
       let targetFile = file;
 
+      const pathFallback = (state.isTumor || (state.classification || '').toLowerCase().includes('tumor')) 
+        ? '/sample_scans/Tumor.jpg' 
+        : (state.isCyst || (state.classification || '').toLowerCase().includes('cyst')) 
+        ? '/sample_scans/Cyst.jpg'
+        : (state.isStone || (state.classification || '').toLowerCase().includes('stone'))
+        ? '/sample_scans/stone.webp'
+        : '/sample_scans/Normal.jpg';
+
       // 1. If no File object, resolve binary file from base64, bundled CDN, or backend
       if (!targetFile && imageUrl) {
         try {
@@ -86,7 +94,8 @@ const TechnicalDetails = () => {
           imageUrl,
           cleanName ? `/sample_scans/${encodeURIComponent(cleanName)}` : '',
           cleanName ? `${API_BASE}/api/images/${encodeURIComponent(cleanName)}` : '',
-          '/sample_scans/cyste 3.jpg'
+          pathFallback,
+          '/sample_scans/Normal.jpg'
         ].filter(Boolean);
 
         for (const u of candidateUrls) {
@@ -140,7 +149,7 @@ const TechnicalDetails = () => {
       } catch (err) {
         console.error("Technical details fetch failed, falling back to simulated visuals:", err);
         if (isMounted) {
-          const sim = generateSimulatedDetails(imageUrl || '/sample_scans/cyste 3.jpg');
+          const sim = generateSimulatedDetails(imageUrl || pathFallback);
           setImages(sim);
           setLoading(false);
         }

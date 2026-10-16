@@ -52,16 +52,13 @@ const Analyze = () => {
         };
         const existingHistory = JSON.parse(localStorage.getItem('recentAnalyses') || '[]');
         const filteredHistory = existingHistory.filter(h => h.filename !== filename);
-        localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...filteredHistory].slice(0, 10)));
-      } catch (storageErr) {
         try {
-          const historyEntry = { ...analysisResult, imageUrl: backendImgUrl };
-          const existingHistory = JSON.parse(localStorage.getItem('recentAnalyses') || '[]');
-          const filteredHistory = existingHistory.filter(h => h.filename !== filename);
-          localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...filteredHistory].slice(0, 10)));
-        } catch (e) {
-          console.warn('LocalStorage save skipped:', e);
+          localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...filteredHistory].slice(0, 5)));
+        } catch {
+          localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...filteredHistory].slice(0, 2)));
         }
+      } catch (storageErr) {
+        console.warn('LocalStorage save skipped:', storageErr);
       }
 
       navigate('/results', { state: { ...analysisResult, file } });

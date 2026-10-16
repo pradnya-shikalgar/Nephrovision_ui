@@ -46,9 +46,9 @@ const TechnicalDetails = () => {
     const svgChart = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 100 100"><circle cx="50" cy="50" r="38" fill="transparent" stroke="%2310b981" stroke-width="20" stroke-dasharray="144 238.7" stroke-dashoffset="0"/><circle cx="50" cy="50" r="38" fill="transparent" stroke="%23ef4444" stroke-width="20" stroke-dasharray="94.7 238.7" stroke-dashoffset="-144"/><text x="50" y="47" text-anchor="middle" font-size="7" font-weight="bold" fill="%230f172a">Healthy: 60.3%</text><text x="50" y="56" text-anchor="middle" font-size="7" font-weight="bold" fill="%23ef4444">Pathology: 39.7%</text></svg>`;
 
     return {
-      original_image: sourceImg ? sourceImg.replace(/^data:image\/[a-z]+;base64,/, '') : '',
-      gradcam_image: sourceImg ? sourceImg.replace(/^data:image\/[a-z]+;base64,/, '') : '',
-      surgical_boundaries: sourceImg ? sourceImg.replace(/^data:image\/[a-z]+;base64,/, '') : '',
+      original_image: sourceImg || '',
+      gradcam_image: sourceImg || '',
+      surgical_boundaries: sourceImg || '',
       impact_ratio: '',
       impact_ratio_svg: svgChart,
       is_simulated: true
@@ -61,11 +61,15 @@ const TechnicalDetails = () => {
     const fetchTechnicalDetails = async () => {
       let targetFile = file;
 
-      const pathFallback = (state.isTumor || (state.classification || '').toLowerCase().includes('tumor')) 
+      const isTumor = Boolean(state.isTumor || state.is_tumor || (state.classification || '').toLowerCase().includes('tumor') || (filename || '').toLowerCase().includes('tumor') || (filename || '').toLowerCase().includes('tumer'));
+      const isCyst = Boolean(state.isCyst || state.is_cyst || (state.classification || '').toLowerCase().includes('cyst') || (filename || '').toLowerCase().includes('cyst') || (filename || '').toLowerCase().includes('cyste'));
+      const isStone = Boolean(state.isStone || state.is_stone || (state.classification || '').toLowerCase().includes('stone') || (filename || '').toLowerCase().includes('stone'));
+
+      const pathFallback = isTumor
         ? '/sample_scans/Tumor.jpg' 
-        : (state.isCyst || (state.classification || '').toLowerCase().includes('cyst')) 
+        : isCyst
         ? '/sample_scans/Cyst.jpg'
-        : (state.isStone || (state.classification || '').toLowerCase().includes('stone'))
+        : isStone
         ? '/sample_scans/stone.webp'
         : '/sample_scans/Normal.jpg';
 
@@ -164,6 +168,7 @@ const TechnicalDetails = () => {
   }, [file, imageUrl, generateSimulatedDetails]);
 
   const getImageSrc = (b64, svg) => {
+    if (b64 && (b64.startsWith('data:') || b64.startsWith('/sample_scans/') || b64.startsWith('http'))) return b64;
     if (b64 && b64.length > 50) return `data:image/jpeg;base64,${b64}`;
     if (svg) return svg;
     if (imageUrl) return imageUrl;

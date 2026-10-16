@@ -51,8 +51,29 @@ const Results = () => {
   const filename = state.filename || 'Patient_CT_0042.dcm';
   
   // Resolve reliable image URL: state.imageUrl, or fallback to backend uploads endpoint
-  const rawImageUrl = state.imageUrl || (filename ? `${API_BASE}/api/images/${encodeURIComponent(filename)}` : '');
-  const imageUrl = rawImageUrl.startsWith('/api/') ? `${API_BASE}${rawImageUrl}` : rawImageUrl;
+  const resolveInitialImageUrl = () => {
+    let url = state.imageUrl || '';
+    if (url && (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('/sample_scans/'))) {
+      return url;
+    }
+    const baseName = filename ? filename.split('/').pop().split('\\').pop() : '';
+    const knownSamples = ['cyste 3.jpg', 'cyste 2.jpg', 'Cyst.jpg', '1.jpg', 'Normal.jpg', 'Tumor.jpg', 'stone.webp'];
+    if (knownSamples.includes(baseName)) {
+      return `/sample_scans/${encodeURIComponent(baseName)}`;
+    }
+    if (url.startsWith('/api/')) {
+      return `${API_BASE}${url}`;
+    }
+    if (url.includes('/api/images/')) {
+      const rel = url.substring(url.indexOf('/api/images/'));
+      return `${API_BASE}${rel}`;
+    }
+    if (filename) {
+      return `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
+    }
+    return url;
+  };
+  const [imageUrl, setImageUrl] = useState(resolveInitialImageUrl);
 
   const patientName = state.patientName || '';
   const patientAge = state.patientAge || '';
@@ -213,21 +234,32 @@ const Results = () => {
               alignItems: 'center',
               justifyContent: 'center',
               maxWidth: '100%',
-              maxHeight: '100%'
+              maxHeight: '100%',
+              minWidth: '240px',
+              minHeight: '240px'
             }}>
               {imageUrl ? (
                 <img 
                   src={imageUrl} 
                   alt="CT Scan" 
                   onError={(e) => {
-                    const backendFallback = filename ? `${API_BASE}/api/images/${encodeURIComponent(filename)}` : '';
-                    if (backendFallback && e.target.src !== backendFallback) {
+                    const cleanName = filename ? filename.split('/').pop().split('\\').pop() : '';
+                    const sampleFallback = cleanName ? `/sample_scans/${encodeURIComponent(cleanName)}` : '';
+                    const backendFallback = cleanName ? `${API_BASE}/api/images/${encodeURIComponent(cleanName)}` : '';
+                    
+                    if (sampleFallback && !e.target.src.includes('/sample_scans/')) {
+                      e.target.src = sampleFallback;
+                    } else if (backendFallback && e.target.src !== backendFallback) {
                       e.target.src = backendFallback;
+                    } else if (!e.target.src.includes('cyste%203.jpg') && !e.target.src.includes('Normal.jpg')) {
+                      e.target.src = '/sample_scans/cyste 3.jpg';
                     }
                   }}
                   style={{ 
                     maxWidth: '100%', 
                     maxHeight: '100%', 
+                    minWidth: '220px',
+                    minHeight: '220px',
                     width: 'auto',
                     height: 'auto',
                     display: 'block',

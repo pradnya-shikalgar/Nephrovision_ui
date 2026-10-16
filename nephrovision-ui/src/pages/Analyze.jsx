@@ -46,15 +46,22 @@ const Analyze = () => {
       };
 
       try {
-        // Persist backend URL in history so images can always reload when reviewing past analyses
         const historyEntry = { 
           ...analysisResult, 
-          imageUrl: (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) ? imageUrl : backendImgUrl 
+          imageUrl: resolvedImageUrl || backendImgUrl 
         };
         const existingHistory = JSON.parse(localStorage.getItem('recentAnalyses') || '[]');
-        localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...existingHistory].slice(0, 10)));
+        const filteredHistory = existingHistory.filter(h => h.filename !== filename);
+        localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...filteredHistory].slice(0, 10)));
       } catch (storageErr) {
-        console.warn('LocalStorage save skipped (quota limit):', storageErr);
+        try {
+          const historyEntry = { ...analysisResult, imageUrl: backendImgUrl };
+          const existingHistory = JSON.parse(localStorage.getItem('recentAnalyses') || '[]');
+          const filteredHistory = existingHistory.filter(h => h.filename !== filename);
+          localStorage.setItem('recentAnalyses', JSON.stringify([historyEntry, ...filteredHistory].slice(0, 10)));
+        } catch (e) {
+          console.warn('LocalStorage save skipped:', e);
+        }
       }
 
       navigate('/results', { state: { ...analysisResult, file } });

@@ -14,7 +14,16 @@ env/
 .env/
 *.log
 *.zip
-backend/uploads/
+backend/uploads/*
+!backend/uploads/cyste 3.jpg
+!backend/uploads/cyste 2.jpg
+!backend/uploads/Cyst.jpg
+!backend/uploads/1.jpg
+!backend/uploads/Normal.jpg
+!backend/uploads/Tumor.jpg
+!backend/uploads/stone.webp
+!backend/uploads/TUMER 3.jpg
+!backend/uploads/TUMER 4.jpg
 backend/analyses_history.json
 *.png
 !nephrovision-ui/public/*.png
